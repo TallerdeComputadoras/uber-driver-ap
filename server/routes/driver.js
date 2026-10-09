@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const Trip = require('../Models/Trip');
-const User = require('../Models/User');
-const FuelPrice = require('../Models/FuelPrice');
+const Trip = require('../models/Trip');
+const User = require('../models/User');
+const FuelPrice = require('../models/FuelPrice');
 const authMiddleware = require('../middleware/auth');
 
 // Protect routes: verify driver role
