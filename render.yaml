@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: uber-driver-app
+    env: node
+    plan: free
+    runtime: nodejs
+    buildCommand: ./render-build.sh
+    startCommand: node index.js
+    envVars:
+      # Ejemplo de variables de entorno (se pueden establecer en el dashboard de Render)
+      - key: JWT_SECRET
+        fromSecret: jwt_secret
+      - key: MONGODB_URI
+        fromMongoDB: uber_driver
+      - key: PORT
+        value: 10000
+      - key: CORS_ORIGIN
+        value: "*"
