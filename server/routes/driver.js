@@ -43,7 +43,8 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
 // @route   POST /api/driver/post-trip
 // @access  Private (driver)
 router.post('/post-trip', driverAuth, async (req, res) => {
-  try const { endMileage, endFuelLevel, fuelLitersAdded, moneyObtained } = req.body;
+  try { 
+    const { endMileage, endFuelLevel, fuelLitersAdded, moneyObtained } = req.body;
     if (endMileage === undefined || endFuelLevel === undefined || moneyObtained === undefined) {
       return res.status(400).json({ message: 'Por favor completa todos los campos obligatorios' });
     }
