@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const User = require('../Models/User');
-const FuelPrice = require('../Models/FuelPrice');
+const User = require('../models/User');
+const FuelPrice = require('../models/FuelPrice');
 const authMiddleware = require('../middleware/auth');
 
 // Middleware to verify admin role
