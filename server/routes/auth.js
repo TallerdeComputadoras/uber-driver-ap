@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
-const Trip = require('../Models/Trip');
-const FuelPrice = require('../Models/FuelPrice');
+const Trip = require('../models/Trip');
+const FuelPrice = require('../models/FuelPrice');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
