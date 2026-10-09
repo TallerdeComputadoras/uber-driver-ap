@@ -118,7 +118,8 @@ router.get('/drivers-stats', adminAuth, async (req, res) => {
 // @route   POST /api/admin/monthly-rendition
 // @access  Private (admin)
 router.post('/monthly-rendition', adminAuth, async (req, res) => {
-  try const { driverId } = req.body;
+  try {
+    const { driverId } = req.body;
     if (!driverId) {
       return res.status(400).json({ message: 'ID de conductor requerido' });
     }
