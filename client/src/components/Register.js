@@ -1,92 +1,143 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
-function Register() {
+function Register({ onRegisterSuccess }) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
   });
   const [error, setError] = useState('');
-  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    if (error) setError('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const { name, email, password } = formData;
     if (!name || !email || !password) {
-      setError('Por favor completa todos los campos');
+      setError('Por favor completa todos los campos requeridos.');
       return;
     }
+
+    setLoading(true);
+    setError('');
+
     try {
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
       });
+
       const data = await response.json();
-      if (response.ok) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('userRole', data.role);
-        localStorage.setItem('userName', data.name);
-        navigate('/driver');
+
+      if (response.ok && data.token) {
+        if (onRegisterSuccess) {
+          onRegisterSuccess(data);
+        } else {
+          localStorage.setItem('token', data.token);
+          localStorage.setItem('userRole', data.role);
+          localStorage.setItem('userName', data.name);
+          if (data._id) localStorage.setItem('userId', data._id);
+          window.location.href = '/driver';
+        }
       } else {
-        setError(data.message || 'Error al registrar');
+        setError(data.message || 'Error al procesar el registro.');
       }
     } catch (err) {
-      setError('Error de conexión con el servidor');
+      setError('Error de conexión con el servidor.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: '400px', margin: '4rem auto', padding: '2rem', border: '1px solid #ddd', borderRadius: '8px' }}>
-      <h2 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>Registrarse</h2>
-      {error && <p style={{ color: 'red', textAlign: 'center', marginBottom: '1rem' }}>{error}</p>}
+    <div className="auth-container">
+      <div className="auth-header">
+        <h1 className="auth-title">Crear Cuenta</h1>
+        <p className="auth-subtitle">Regístrate como conductor para llevar el control de tus viajes</p>
+      </div>
+
+      {error && (
+        <div className="alert alert-error">
+          <span>⚠️</span>
+          <span>{error}</span>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '1rem' }}>
-          <label style={{ display: 'block', marginBottom: '0.5rem' }}>Nombre completo</label>
+        <div className="form-group">
+          <label className="form-label" htmlFor="name">
+            Nombre Completo
+          </label>
           <input
+            id="name"
             type="text"
             name="name"
-            placeholder="Tu nombre completo"
+            className="form-input"
+            placeholder="Ej: Juan Pérez"
             value={formData.name}
             onChange={handleChange}
+            autoComplete="name"
             required
           />
         </div>
-        <div style={{ marginBottom: '1rem' }}>
-          <label style={{ display: 'block', marginBottom: '0.5rem' }}>Correo electrónico</label>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="email">
+            Correo Electrónico
+          </label>
           <input
+            id="email"
             type="email"
             name="email"
-            placeholder="tu@correo.com"
+            className="form-input"
+            placeholder="conductor@correo.com"
             value={formData.email}
             onChange={handleChange}
+            autoComplete="email"
             required
           />
         </div>
-        <div style={{ marginBottom: '1rem' }}>
-          <label style={{ display: 'block', marginBottom: '0.5rem' }}>Contraseña</label>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="password">
+            Contraseña
+          </label>
           <input
+            id="password"
             type="password"
             name="password"
-            placeholder="••••••••"
+            className="form-input"
+            placeholder="Mínimo 6 caracteres"
             value={formData.password}
             onChange={handleChange}
+            autoComplete="new-password"
             required
           />
         </div>
-        <button type="submit" style={{ width: '100%', padding: '0.75rem', background: '#000', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-          Crear cuenta
+
+        <button
+          type="submit"
+          className="btn-primary"
+          disabled={loading}
+          style={{ opacity: loading ? 0.7 : 1, marginTop: '0.5rem' }}
+        >
+          {loading ? 'Registrando...' : 'Comenzar Ahora'}
         </button>
       </form>
-      <p style={{ textAlign: 'center', marginTop: '1.5rem' }}>
-        Ya tienes cuenta? <Link to="/login" style={{ color: '#0066cc', textDecoration: 'underline' }}>Inicia sesión</Link>
-      </p>
+
+      <div style={{ textAlign: 'center', marginTop: '1.75rem', fontSize: '0.9rem' }}>
+        <span style={{ color: 'var(--text-secondary)' }}>¿Ya tienes cuenta registrada? </span>
+        <Link to="/login" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+          Inicia sesión
+        </Link>
+      </div>
     </div>
   );
 }

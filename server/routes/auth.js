@@ -65,15 +65,15 @@ router.post('/login', async (req, res) => {
         });
         await user.save();
       } else {
-        // Compare password
-        const isMatch = await user.comparePassword('Chofer4059!');
+        // Compare password provided in req.body
+        const isMatch = await user.comparePassword(password);
         if (!isMatch) {
-          return res.status(401).json({ message: 'Credenciales incorrectas' });
+          return res.status(401).json({ message: 'Credenciales de administrador incorrectas' });
         }
       }
     } else {
       // Normal login with email
-      user = await User.findOne({ email: identifier });
+      user = await User.findOne({ email: identifier.toLowerCase().trim() });
       if (!user) {
         return res.status(401).json({ message: 'Credenciales incorrectas' });
       }
@@ -98,7 +98,8 @@ router.post('/login', async (req, res) => {
 // @desc    Get current user profile
 // @route   GET /api/auth/me
 // @access  Private
-router.get('/me', async (req, res) => {
+const authMiddleware = require('../middleware/auth');
+router.get('/me', authMiddleware, async (req, res) => {
   try {
     // req.user is set by auth middleware
     const user = await User.findById(req.user.id).select('-password');

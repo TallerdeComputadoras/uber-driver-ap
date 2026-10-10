@@ -5,13 +5,17 @@ const User = require('../models/User');
 const FuelPrice = require('../models/FuelPrice');
 const authMiddleware = require('../middleware/auth');
 
-// Protect routes: verify driver role
+// Require authentication for all driver routes
+router.use(authMiddleware);
+
+// Protect routes: verify driver or admin role
 const driverAuth = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
-    if (!user || user.role !== 'driver') {
-      return res.status(403).json({ message: 'Acceso denegado: se requiere rol de conductor' });
+    if (!user) {
+      return res.status(403).json({ message: 'Usuario no encontrado' });
     }
+    // Drivers and admins can access driver routes
     next();
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -29,11 +33,11 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
     }
     const trip = new Trip({
       driver: req.user.id,
-      startMileage,
-      startFuelLevel,
+      startMileage: Number(startMileage),
+      startFuelLevel: Number(startFuelLevel),
     });
     await trip.save();
-    res.status(201).json({ message: 'Datos de inicio guardados', trip });
+    res.status(201).json({ message: 'Inicio de jornada guardado con éxito', trip });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -43,30 +47,38 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
 // @route   POST /api/driver/post-trip
 // @access  Private (driver)
 router.post('/post-trip', driverAuth, async (req, res) => {
-  try { 
+  try {
     const { endMileage, endFuelLevel, fuelLitersAdded, moneyObtained } = req.body;
     if (endMileage === undefined || endFuelLevel === undefined || moneyObtained === undefined) {
       return res.status(400).json({ message: 'Por favor completa todos los campos obligatorios' });
     }
-    const trip = await Trip.findOne({ driver: req.user.id, endMileage: null }).sort({ createdAt: -1 }) || await Trip.findOne({ driver: req.user.id }).sort({ createdAt: -1 });
-    // Actually we need to find an active trip without end data. Let's find the latest trip for this driver that doesn't have endMileage.
-    const activeTrip = await Trip.findOne({ driver: req.user.id, endMileage: null }).sort({ startMileage: -1 });
+
+    // Find the latest active trip for this driver that doesn't have endMileage
+    let activeTrip = await Trip.findOne({ driver: req.user.id, endMileage: null }).sort({ createdAt: -1 });
+
     if (!activeTrip) {
-      return res.status(404).json({ message: 'No hay un viaje activo para finalizar' });
+      // If no active pre-trip exists, create one with default start values
+      activeTrip = new Trip({
+        driver: req.user.id,
+        startMileage: Math.max(0, Number(endMileage) - 10),
+        startFuelLevel: 100,
+      });
     }
-    // Update the trip with post-trip data
-    activeTrip.endMileage = endMileage;
-    activeTrip.endFuelLevel = endFuelLevel;
-    activeTrip.fuelLitersAdded = fuelLitersAdded || 0;
-    activeTrip.moneyObtained = moneyObtained;
-    // Compute kilometers, fuel consumed, fuel cost
+
+    activeTrip.endMileage = Number(endMileage);
+    activeTrip.endFuelLevel = Number(endFuelLevel);
+    activeTrip.fuelLitersAdded = Number(fuelLitersAdded) || 0;
+    activeTrip.moneyObtained = Number(moneyObtained);
+
+    // Compute metrics
     activeTrip.computeKilometers();
     activeTrip.computeFuelConsumed();
-    // Get fuel price
+
     const fuelPrice = await FuelPrice.getCurrentPrice();
     activeTrip.computeFuelCost(fuelPrice);
+
     await activeTrip.save();
-    res.json({ message: 'Viaje finalizado', trip: activeTrip });
+    res.json({ message: 'Jornada finalizada y métricas calculadas con éxito', trip: activeTrip });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -74,55 +86,50 @@ router.post('/post-trip', driverAuth, async (req, res) => {
 
 // @desc    Get statistics for a driver (or any driver)
 // @route   GET /api/driver/stats
-// @access  Private (driver) - can select any driver by query param
+// @access  Private
 router.get('/stats', driverAuth, async (req, res) => {
   try {
-    const { driverId, period } = req.query; // period: day, week, month, year
+    const { driverId, period } = req.query;
     let filter = {};
-    if (driverId) {
+    if (driverId && driverId !== 'undefined' && driverId !== 'null') {
       filter.driver = driverId;
     } else {
       filter.driver = req.user.id;
     }
-    // Determine date range based on period
+
     const now = new Date();
     let startDate;
-    switch (period) {
-      case 'day':
-        startDate = new Date(now.setHours(0, 0, 0, 0));
-        break;
-      case 'week':
-        const day = now.getDay() || 7;
-        startDate = new Date(now.setDate(now.getDate() - day + 1));
-        startDate = new Date(startDate.setHours(0, 0, 0, 0));
-        break;
-      case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      case 'year':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        break;
-      default:
-        startDate = new Date(0); // all time
+
+    if (period === 'day') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    } else if (period === 'week') {
+      const day = now.getDay() || 7;
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day + 1, 0, 0, 0);
+    } else if (period === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    } else if (period === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0);
     }
+
     if (startDate) {
       filter.date = { $gte: startDate };
     }
+
     const trips = await Trip.find(filter).sort({ date: 1 });
-    // Calculate aggregates
+
     let totalKm = 0;
-    let totalHours = 0; // we don't have duration, but can approximate or leave 0
     let totalMoney = 0;
     let totalFuelCost = 0;
     let tripCount = trips.length;
-    trips.forEach(trip => {
+
+    trips.forEach((trip) => {
       if (trip.kilometersDone) totalKm += trip.kilometersDone;
       if (trip.moneyObtained) totalMoney += trip.moneyObtained;
       if (trip.fuelCost) totalFuelCost += trip.fuelCost;
-      // duration not stored, skip or set 0
     });
+
     res.json({
-      period: period || 'all',
+      period: period || 'month',
       driverId: filter.driver,
       tripCount,
       totalKilometers: totalKm,

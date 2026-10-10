@@ -1,12 +1,24 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# exit on error
+set -o errexit
 
-# Install dependencies
-echo "Installing npm dependencies..."
-npm install --production
+echo "========================================"
+echo "  UBER DRIVER APP - RENDER BUILD SCRIPT "
+echo "========================================"
 
-# Build if needed (for React apps, but this is a Node API)
-# If you had a React app, you'd build it here
-# npm run build
+echo ">> 1. Installing server dependencies..."
+cd server
+npm install --production=false
+cd ..
 
-echo "Build complete"
+echo ">> 2. Installing client dependencies..."
+cd client
+npm install
+# Fix any peer dependency issues if any
+echo ">> 3. Building React client bundle..."
+npm run build
+cd ..
+
+echo "========================================"
+echo "  BUILD COMPLETED SUCCESSFULLY!         "
+echo "========================================"

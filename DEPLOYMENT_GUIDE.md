@@ -28,11 +28,12 @@ Render can also deploy from your local folder without Git, but GitHub is easier.
 2. Click **"New +"** → **"Web Service"**
 3. Connect your GitHub repo (`uber-driver-app`)
 4. Configure the service:
-   - **Name**: `uber-driver-app` (or your choice)
+   - **Name**: `uber-driver-app` (o el nombre que elijas)
    - **Environment**: `Node`
-   - **Build Command**: `npm install`
-   - **Start Command**: `node index.js`
-   - **Node Version**: `20.x` (or latest available)
+   - **Root Directory**: (dejar en blanco para usar la raíz del repositorio)
+   - **Build Command**: `./render-build.sh` (o `npm run build`)
+   - **Start Command**: `node index.js` (o `npm start`)
+   - **Node Version**: `20.x` o superior
 
 5. **Add Environment Variables** (critical for security):
    - Click **"Add Variable"** for each:

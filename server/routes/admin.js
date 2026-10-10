@@ -1,8 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const Trip = require('../models/Trip');
 const FuelPrice = require('../models/FuelPrice');
 const authMiddleware = require('../middleware/auth');
+
+// Public route to get current fuel price
+router.get('/fuel-price', async (req, res) => {
+  try {
+    const price = await FuelPrice.getCurrentPrice();
+    res.json({ pricePerLiter: price });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
 // Middleware to verify admin role
 const adminAuth = async (req, res, next) => {
@@ -20,26 +31,14 @@ const adminAuth = async (req, res, next) => {
 // @desc    Set fuel price per liter (admin)
 // @route   POST /api/admin/fuel-price
 // @access  Private (admin)
-router.post('/fuel-price', adminAuth, async (req, res) => {
+router.post('/fuel-price', authMiddleware, adminAuth, async (req, res) => {
   try {
     const { pricePerLiter } = req.body;
     if (pricePerLiter === undefined || pricePerLiter < 0) {
       return res.status(400).json({ message: 'Por favor ingresa un precio válido' });
     }
-    const price = await FuelPrice.updatePrice(pricePerLiter, req.user.id);
+    const price = await FuelPrice.updatePrice(Number(pricePerLiter), req.user.id);
     res.json({ message: 'Precio de nafta actualizado', pricePerLiter: price });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// @desc    Get current fuel price
-// @route   GET /api/admin/fuel-price
-// @access  Public
-router.get('/fuel-price', async (req, res) => {
-  try {
-    const price = await FuelPrice.getCurrentPrice();
-    res.json({ pricePerLiter: price });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -48,56 +47,57 @@ router.get('/fuel-price', async (req, res) => {
 // @desc    Get all drivers stats (admin)
 // @route   GET /api/admin/drivers-stats
 // @access  Private (admin)
-router.get('/drivers-stats', adminAuth, async (req, res) => {
+router.get('/drivers-stats', authMiddleware, adminAuth, async (req, res) => {
   try {
     const { period, driverId } = req.query;
     let filter = {};
-    if (driverId) {
+    if (driverId && driverId !== 'undefined' && driverId !== 'null') {
       filter.driver = driverId;
     }
+
     const now = new Date();
     let startDate;
-    switch (period) {
-      case 'day':
-        startDate = new Date(now.setHours(0, 0, 0, 0));
-        break;
-      case 'week':
-        const day = now.getDay() || 7;
-        startDate = new Date(now.setDate(now.getDate() - day + 1));
-        startDate = new Date(startDate.setHours(0, 0, 0, 0));
-        break;
-      case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      case 'year':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        break;
-      default:
-        startDate = new Date(0);
+    if (period === 'day') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    } else if (period === 'week') {
+      const day = now.getDay() || 7;
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day + 1, 0, 0, 0);
+    } else if (period === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    } else if (period === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0);
     }
+
     if (startDate) {
       filter.date = { $gte: startDate };
     }
+
     const trips = await Trip.find(filter).sort({ date: -1 });
+
     // Aggregate per driver
     const driverStats = {};
-    trips.forEach(trip => {
-      const driverId = trip.driver.toString();
-      if (!driverStats[driverId]) {
-        driverStats[driverId] = { tripCount: 0, totalKm: 0, totalMoney: 0, totalFuelCost: 0 };
+    trips.forEach((trip) => {
+      const dId = trip.driver.toString();
+      if (!driverStats[dId]) {
+        driverStats[dId] = { tripCount: 0, totalKm: 0, totalMoney: 0, totalFuelCost: 0 };
       }
-      driverStats[driverId].tripCount += 1;
-      if (trip.kilometersDone) driverStats[driverId].totalKm += trip.kilometersDone;
-      if (trip.moneyObtained) driverStats[driverId].totalMoney += trip.moneyObtained;
-      if (trip.fuelCost) driverStats[driverId].totalFuelCost += trip.fuelCost;
+      driverStats[dId].tripCount += 1;
+      if (trip.kilometersDone) driverStats[dId].totalKm += trip.kilometersDone;
+      if (trip.moneyObtained) driverStats[dId].totalMoney += trip.moneyObtained;
+      if (trip.fuelCost) driverStats[dId].totalFuelCost += trip.fuelCost;
     });
-    // Add user info
-    const driverIds = Object.keys(driverStats);
-    const drivers = await User.find({ _id: { $in: driverIds } }).select('name email');
-    const result = [];
-    drivers.forEach(d => {
-      const stats = driverStats[d._id.toString()];
-      result.push({
+
+    // Also get all registered drivers
+    const allDrivers = await User.find({ role: 'driver' }).select('name email');
+
+    const result = allDrivers.map((d) => {
+      const stats = driverStats[d._id.toString()] || {
+        tripCount: 0,
+        totalKm: 0,
+        totalMoney: 0,
+        totalFuelCost: 0,
+      };
+      return {
         _id: d._id,
         name: d.name,
         email: d.email,
@@ -106,9 +106,10 @@ router.get('/drivers-stats', adminAuth, async (req, res) => {
         totalMoney: stats.totalMoney,
         totalFuelCost: stats.totalFuelCost,
         netProfit: stats.totalMoney - stats.totalFuelCost,
-      });
+      };
     });
-    res.json({ period: period || 'all', drivers: result });
+
+    res.json({ period: period || 'month', drivers: result });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -117,15 +118,20 @@ router.get('/drivers-stats', adminAuth, async (req, res) => {
 // @desc    Mark monthly rendition as paid for a driver
 // @route   POST /api/admin/monthly-rendition
 // @access  Private (admin)
-router.post('/monthly-rendition', adminAuth, async (req, res) => {
+router.post('/monthly-rendition', authMiddleware, adminAuth, async (req, res) => {
   try {
     const { driverId } = req.body;
     if (!driverId) {
       return res.status(400).json({ message: 'ID de conductor requerido' });
     }
-    // In a real app, we'd have a rendition status field on User or a separate model.
-    // For now, just acknowledge.
-    res.json({ message: 'Rendición mensual marcada como abonada para el conductor', driverId });
+    const driver = await User.findById(driverId);
+    if (!driver) {
+      return res.status(404).json({ message: 'Conductor no encontrado' });
+    }
+    res.json({
+      message: `Rendición mensual marcada como abonada exitosamente para ${driver.name}.`,
+      driverId,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -1,83 +1,105 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect, useCallback } from 'react';
 
-function AdminPanel() {
-  const [token, setToken] = useState(localStorage.getItem('token') || '');
+function AdminPanel({ token: propToken }) {
+  const [token, setToken] = useState(propToken || localStorage.getItem('token') || '');
+  const [userRole] = useState(localStorage.getItem('userRole') || '');
   const [adminPassword, setAdminPassword] = useState('');
-  const [showAdminForm, setShowAdminForm] = useState(false);
+  const [isAuthenticatedAdmin, setIsAuthenticatedAdmin] = useState(userRole === 'admin');
 
-  // Authenticate as admin
-  const authenticateAdmin = async (pwd) => {
+  // Fuel price state
+  const [currentFuelPrice, setCurrentFuelPrice] = useState(null);
+  const [fuelPriceInput, setFuelPriceInput] = useState('');
+  const [updatingPrice, setUpdatingPrice] = useState(false);
+
+  // Rendition & drivers state
+  const [driversStats, setDriversStats] = useState([]);
+  const [selectedDriverForRendition, setSelectedDriverForRendition] = useState('');
+  const [periodForStats, setPeriodForStats] = useState('month');
+  const [loadingStats, setLoadingStats] = useState(false);
+
+  // Alerts
+  const [alert, setAlert] = useState({ type: '', message: '' });
+
+  const showAlert = (type, message) => {
+    setAlert({ type, message });
+    setTimeout(() => setAlert({ type: '', message: '' }), 5000);
+  };
+
+  // Fetch current fuel price
+  const fetchCurrentFuelPrice = async () => {
+    try {
+      const res = await fetch('/api/admin/fuel-price');
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentFuelPrice(data.pricePerLiter);
+      }
+    } catch (err) {
+      console.error('Error fetching fuel price:', err);
+    }
+  };
+
+  // Fetch drivers stats
+  const fetchDriversStats = useCallback(async () => {
+    if (!token) return;
+    setLoadingStats(true);
+    try {
+      const res = await fetch(`/api/admin/drivers-stats?period=${periodForStats}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDriversStats(data.drivers || []);
+      }
+    } catch (err) {
+      console.error('Error fetching admin stats:', err);
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [token, periodForStats]);
+
+  useEffect(() => {
+    fetchCurrentFuelPrice();
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticatedAdmin && token) {
+      fetchDriversStats();
+    }
+  }, [isAuthenticatedAdmin, token, fetchDriversStats]);
+
+  // Admin authentication (if not already logged in as admin)
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: 'Administrador', password: pwd }),
+        body: JSON.stringify({ identifier: 'Administrador', password: adminPassword }),
       });
       const data = await res.json();
-      if (data.token) {
+      if (res.ok && data.token) {
         setToken(data.token);
         localStorage.setItem('token', data.token);
-        setShowAdminForm(true);
-        alert('Autenticación de administrador exitosa');
+        localStorage.setItem('userRole', data.role);
+        localStorage.setItem('userName', data.name);
+        setIsAuthenticatedAdmin(true);
+        showAlert('success', 'Autenticación de Administrador exitosa.');
       } else {
-        alert(data.message || 'Credenciales incorrectas');
+        showAlert('error', data.message || 'Contraseña de administrador incorrecta.');
       }
     } catch (err) {
-      alert('Error de conexión');
+      showAlert('error', 'Error al conectar con el servidor.');
     }
   };
-
-  // If token already indicates admin, show form directly
-  useEffect(() => {
-    if (token) {
-      // Verify role
-      try {
-        const res = fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
-        // We'll just assume if password was correct, show form
-      } catch (e) {}
-    }
-  }, [token]);
-
-  // State for fuel price
-  const [fuelPrice, setFuelPrice] = useState('');
-  const [fuelPriceError, setFuelPriceError] = useState('');
-  const [driversStats, setDriversStats] = useState([]);
-  const [selectedDriverForStats, setSelectedDriverForStats] = useState('');
-  const [periodForStats, setPeriodForStats] = useState('month');
-  const [monthlyRendition, setMonthlyRendition] = useState('');
-
-  // Authenticate on mount if password provided
-  useEffect(() => {
-    if (!token && adminPassword) {
-      authenticateAdmin(adminPassword);
-    }
-  }, [token, adminPassword]);
-
-  // Fetch drivers stats
-  useEffect(() => {
-    const fetchStats = async () => {
-      if (!token) return;
-      try {
-        const res = await fetch(`/api/admin/drivers-stats?period=${periodForStats}&driverId=${selectedDriverForStats || ''}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        setDriversStats(data.drivers || []);
-      } catch (err) {
-        console.error('Error fetching admin stats:', err);
-      }
-    };
-    fetchStats();
-  }, [token, periodForStats, selectedDriverForStats]);
 
   // Update fuel price
   const handleUpdatePrice = async (e) => {
     e.preventDefault();
-    if (!fuelPrice || isNaN(Number(fuelPrice))) {
-      setFuelPriceError('Ingresa un precio válido');
+    if (!fuelPriceInput || isNaN(Number(fuelPriceInput)) || Number(fuelPriceInput) <= 0) {
+      showAlert('error', 'Por favor ingresa un precio de nafta válido y mayor a cero.');
       return;
     }
+    setUpdatingPrice(true);
     try {
       const res = await fetch('/api/admin/fuel-price', {
         method: 'POST',
@@ -85,28 +107,29 @@ function AdminPanel() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ pricePerLiter: Number(fuelPrice) }),
+        body: JSON.stringify({ pricePerLiter: Number(fuelPriceInput) }),
       });
       const data = await res.json();
       if (res.ok) {
-        setFuelPrice('');
-        setFuelPriceError('');
-        alert('Precio de nafta actualizado');
-        // Refresh stats
-        fetchStats();
+        setCurrentFuelPrice(data.pricePerLiter);
+        setFuelPriceInput('');
+        showAlert('success', `Precio de combustible actualizado a $${data.pricePerLiter}/litro.`);
+        fetchDriversStats();
       } else {
-        setFuelPriceError(data.message || 'Error al actualizar');
+        showAlert('error', data.message || 'Error al actualizar precio.');
       }
     } catch (err) {
-      alert('Error de conexión');
+      showAlert('error', 'Error de conexión.');
+    } finally {
+      setUpdatingPrice(false);
     }
   };
 
   // Mark monthly rendition as paid
   const handleMarkRendition = async (e) => {
     e.preventDefault();
-    if (!selectedDriverForStats) {
-      alert('Selecciona un conductor');
+    if (!selectedDriverForRendition) {
+      showAlert('error', 'Selecciona un conductor de la lista.');
       return;
     }
     try {
@@ -116,142 +139,249 @@ function AdminPanel() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ driverId: selectedDriverForStats }),
+        body: JSON.stringify({ driverId: selectedDriverForRendition }),
       });
       const data = await res.json();
       if (res.ok) {
-        alert(data.message);
-        setMonthlyRendition('');
+        showAlert('success', data.message || 'Rendición marcada como abonada exitosamente.');
+        setSelectedDriverForRendition('');
       } else {
-        alert(data.message || 'Error');
+        showAlert('error', data.message || 'Error al marcar rendición.');
       }
     } catch (err) {
-      alert('Error de conexión');
+      showAlert('error', 'Error de conexión.');
     }
   };
 
+  // Fleet totals
+  const totalFleetKm = driversStats.reduce((sum, d) => sum + (d.totalKilometers || 0), 0);
+  const totalFleetMoney = driversStats.reduce((sum, d) => sum + (d.totalMoney || 0), 0);
+  const totalFleetFuelCost = driversStats.reduce((sum, d) => sum + (d.totalFuelCost || 0), 0);
+  const totalFleetTrips = driversStats.reduce((sum, d) => sum + (d.trips || 0), 0);
+
+  if (!isAuthenticatedAdmin) {
+    return (
+      <div className="auth-container">
+        <div className="auth-header">
+          <h1 className="auth-title">Panel de Administración</h1>
+          <p className="auth-subtitle">Ingresa la clave maestra de administrador</p>
+        </div>
+
+        {alert.message && (
+          <div className={`alert ${alert.type === 'error' ? 'alert-error' : 'alert-success'}`}>
+            <span>{alert.type === 'error' ? '⚠️' : '✅'}</span>
+            <span>{alert.message}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleAdminLogin}>
+          <div className="form-group">
+            <label className="form-label">Contraseña de Administrador</label>
+            <input
+              type="password"
+              className="form-input"
+              placeholder="••••••••••••"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              required
+            />
+          </div>
+          <button type="submit" className="btn-primary">
+            Desbloquear Panel
+          </button>
+        </form>
+
+        <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          Credencial por defecto: <strong>Chofer4059!</strong>
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
-      {showAdminForm ? (
-        <div style={{ background: '#f8f9fa', padding: '2rem', borderRadius: '8px', marginBottom: '2rem' }}>
-          <h2>Panel de Administrador</h2>
-          
-          {/* Fuel price section */}
-          <div style={{ marginBottom: '1.5rem' }}>
-            <h3>Establecer precio de nafta por litro</h3>
-            <p>Precio actual: <span id="current-price">Cargando...</span></p>
-            <form onSubmit={handleUpdatePrice}>
-              <input
-                type="number"
-                id="fuelPriceInput"
-                value={fuelPrice}
-                onChange={(e) => setFuelPrice(e.target.value)}
-                min="0"
-                step="0.01"
-                style={{ width: '100%', padding: '0.5rem' }}
-                required
-              />
-              <button type="submit" style={{ padding: '0.5rem 1rem', background: '#007bff', color: '#fff', border: 'none', borderRadius: '4px', marginTop: '0.5rem' }}>
-                Actualizar precio
-              </button>
-              <span style={{ color: 'red', marginLeft: '0.5rem', display: block }}>{fuelPriceError}</span>
-            </form>
+    <div>
+      <div style={{ marginBottom: '2rem' }}>
+        <h1 style={{ fontSize: '1.85rem', fontWeight: 800, letterSpacing: '-0.02em' }}>
+          Centro de Control Administrador
+        </h1>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginTop: '0.25rem' }}>
+          Gestión de precios de combustible, supervisión de la flota y rendiciones mensuales.
+        </p>
+      </div>
+
+      {alert.message && (
+        <div className={`alert ${alert.type === 'error' ? 'alert-error' : 'alert-success'}`}>
+          <span>{alert.type === 'error' ? '⚠️' : '✅'}</span>
+          <span>{alert.message}</span>
+        </div>
+      )}
+
+      {/* Fleet Totals Grid */}
+      <div className="stats-cards-grid">
+        <div className="stat-card">
+          <div className="stat-card-label">Conductores Activos</div>
+          <div className="stat-card-value">{driversStats.length}</div>
+          <div className="stat-card-sub">En flota</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-label">Viajes Totales</div>
+          <div className="stat-card-value">{totalFleetTrips}</div>
+          <div className="stat-card-sub">En el período</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-label">KM Totales Flota</div>
+          <div className="stat-card-value">{totalFleetKm.toFixed(1)} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>km</span></div>
+          <div className="stat-card-sub">Recorrido global</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-label">Recaudación Bruta</div>
+          <div className="stat-card-value" style={{ color: '#38bdf8' }}>
+            ${totalFleetMoney.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="stat-card-sub">Total generado</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-label">Costo Combustible Flota</div>
+          <div className="stat-card-value" style={{ color: '#f87171' }}>
+            ${totalFleetFuelCost.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="stat-card-sub">Gasto total en nafta</div>
+        </div>
+      </div>
+
+      {/* Admin Action Panels */}
+      <div className="dashboard-grid">
+        {/* Fuel price config */}
+        <div className="card">
+          <div className="card-title">
+            <span>⛽</span>
+            <span>Precio del Litro de Nafta</span>
           </div>
 
-          {/* Monthly rendition section */}
-          <div style={{ marginBottom: '1.5rem' }}>
-            <h3>Marcar rendición mensual como abonada</h3>
-            <form onSubmit={handleMarkRendition}>
+          <div style={{ marginBottom: '1.25rem', padding: '0.75rem 1rem', background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Precio Oficial Actual:</span>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#34d399', marginTop: '0.2rem' }}>
+              {currentFuelPrice !== null ? `$${Number(currentFuelPrice).toFixed(2)} / litro` : 'Cargando...'}
+            </div>
+          </div>
+
+          <form onSubmit={handleUpdatePrice}>
+            <div className="form-group">
+              <label className="form-label">Nuevo Valor por Litro ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                className="form-input"
+                placeholder="Ej: 950.50"
+                value={fuelPriceInput}
+                onChange={(e) => setFuelPriceInput(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" className="btn-primary" disabled={updatingPrice}>
+              {updatingPrice ? 'Actualizando...' : 'Actualizar Precio Global'}
+            </button>
+          </form>
+        </div>
+
+        {/* Rendition mark as paid */}
+        <div className="card">
+          <div className="card-title">
+            <span>💳</span>
+            <span>Rendición Mensual de Conductores</span>
+          </div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+            Marca la rendición del mes correspondiente como liquidada y pagada.
+          </p>
+
+          <form onSubmit={handleMarkRendition}>
+            <div className="form-group">
+              <label className="form-label">Seleccionar Conductor</label>
               <select
-                style={{ width: '100%', padding: '0.5rem', marginBottom: '0.5rem' }}
-                onChange={(e) => setSelectedDriverForStats(e.target.value)}
-                defaultValue={selectedDriverForStats}
+                className="form-select"
+                value={selectedDriverForRendition}
+                onChange={(e) => setSelectedDriverForRendition(e.target.value)}
+                required
               >
-                <option value="">-- Seleccionar conductor --</option>
+                <option value="">-- Elige un conductor --</option>
                 {driversStats.map((d) => (
                   <option key={d._id} value={d._id}>
-                    {d.name} - ${d.totalMoney.toFixed(2)} ganado
+                    {d.name} (${(d.totalMoney || 0).toFixed(2)} recaudados)
                   </option>
                 ))}
               </select>
-              <button type="submit" style={{ padding: '0.5rem 1rem', background: '#20c997', color: '#fff', border: 'none', borderRadius: '4px' }}>
-                Marcar como abonado
-              </button>
-            </form>
-          </div>
-
-          {/* Drivers stats list */}
-          <div>
-            <h3>Estadísticas de conductores</h3>
-            <p>Período: 
-              <select
-                style={{ padding: '0.3rem' }}
-                onChange={(e) => setPeriodForStats(e.target.value)}
-                defaultValue={periodForStats}
-              >
-                <option value="day">Día</option>
-                <option value="week">Semana</option>
-                <option value="month" selected>Mes</option>
-                <option value="year">Año</option>
-              </select>
-            </p>
-            <div style={{ overflowX: 'auto', marginTop: '1rem' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: '#e9ecef' }}>
-                    <th style={{ padding: '0.5rem' }}>Conductor</th>
-                    <th style={{ padding: '0.5rem' }}>Viajes</th>
-                    <th style={{ padding: '0.5rem' }}>Km total</th>
-                    <th style={{ padding: '0.5rem' }}>Dinero total</th>
-                    <th style={{ padding: '0.5rem' }}>Costo combustible</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {driversStats.map((d) => (
-                    <tr key={d._id}>
-                      <td style={{ padding: '0.5rem' }}>{d.name}</td>
-                      <td style={{ padding: '0.5rem' }}>{d.trips}</td>
-                      <td style={{ padding: '0.5rem' }}>{d.totalKilometers.toFixed(2)} km</td>
-                      <td style={{ padding: '0.5rem' }}>${d.totalMoney.toFixed(2)}</td>
-                      <td style={{ padding: '0.5rem' }}>${d.totalFuelCost.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
-          </div>
-        </div>
-      ) : (
-        // Login form for admin
-        <div style={{ maxWidth: '400px', margin: '4rem auto', padding: '2rem', border: '1px solid #ddd', borderRadius: '8px' }}>
-          <h2 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>Panel de Administración</h2>
-          <p style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-            Ingresa la contraseña de administrador
-          </p>
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            authenticateAdmin(adminPassword);
-          }}>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem' }}>Contraseña</label>
-              <input
-                type="password"
-                name="adminPassword"
-                placeholder="Contraseña del administrador"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                required
-              />
-            </div>
-            <button type="submit" style={{ width: '100%', padding: '0.75rem', background: '#0066cc', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-              Entrar al panel
+            <button type="submit" className="btn-primary" style={{ background: 'linear-gradient(135deg, #0ea5e9, #0284c7)' }}>
+              Marcar Rendición como Abonada
             </button>
           </form>
-          <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.8rem' }}>
-            Credenciales: usuario: <strong>Administrador</strong> contraseña: <strong>Chofer4059!</strong>
-          </p>
         </div>
-      )}
+      </div>
+
+      {/* Drivers performance table */}
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+          <div className="card-title" style={{ margin: 0 }}>
+            <span>📋</span>
+            <span>Desempeño y Rendimiento de Conductores</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Período:</span>
+            <select
+              className="form-select"
+              style={{ width: 'auto', padding: '0.4rem 0.8rem' }}
+              value={periodForStats}
+              onChange={(e) => setPeriodForStats(e.target.value)}
+            >
+              <option value="day">Día</option>
+              <option value="week">Semana</option>
+              <option value="month">Mes</option>
+              <option value="year">Año</option>
+            </select>
+          </div>
+        </div>
+
+        {loadingStats ? (
+          <p style={{ color: 'var(--text-muted)', padding: '1rem' }}>Cargando estadísticas...</p>
+        ) : driversStats.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', padding: '1rem' }}>No hay registros de viajes en el período seleccionado.</p>
+        ) : (
+          <div className="table-container">
+            <table className="styled-table">
+              <thead>
+                <tr>
+                  <th>Conductor</th>
+                  <th>Correo</th>
+                  <th>Viajes</th>
+                  <th>KM Recorridos</th>
+                  <th>Recaudación ($)</th>
+                  <th>Costo Nafta ($)</th>
+                  <th>Ganancia Neta ($)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {driversStats.map((d) => (
+                  <tr key={d._id}>
+                    <td style={{ fontWeight: 600 }}>{d.name}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{d.email}</td>
+                    <td><span className="badge badge-info">{d.trips || 0}</span></td>
+                    <td>{(d.totalKilometers || 0).toFixed(1)} km</td>
+                    <td style={{ color: '#38bdf8', fontWeight: 600 }}>${(d.totalMoney || 0).toFixed(2)}</td>
+                    <td style={{ color: '#f87171' }}>${(d.totalFuelCost || 0).toFixed(2)}</td>
+                    <td style={{ color: '#34d399', fontWeight: 700 }}>${(d.netProfit || 0).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
