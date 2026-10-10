@@ -6,15 +6,28 @@ console.log('==============================================');
 console.log('  UBER DRIVER APP - FULLSTACK BUILD SCRIPT    ');
 console.log('==============================================');
 
+// Determine root directory whether run from root or from server/
+const currentDir = __dirname;
+const isInsideServer = fs.existsSync(path.join(currentDir, 'models')) || path.basename(currentDir) === 'server';
+const rootDir = isInsideServer ? path.resolve(currentDir, '..') : currentDir;
+
+const serverDir = path.resolve(rootDir, 'server');
+const clientDir = path.resolve(rootDir, 'client');
+
+console.log(`Root dir:   ${rootDir}`);
+console.log(`Server dir: ${serverDir}`);
+console.log(`Client dir: ${clientDir}`);
+
 try {
-  console.log('>> [1/3] Instalando dependencias del servidor...');
-  execSync('npm install --prefix server', { stdio: 'inherit' });
+  console.log('\n>> [1/3] Instalando dependencias del backend...');
+  execSync('npm install', { cwd: serverDir, stdio: 'inherit' });
 
   console.log('\n>> [2/3] Instalando dependencias del cliente (React)...');
-  execSync('npm install --prefix client', { stdio: 'inherit' });
+  execSync('npm install', { cwd: clientDir, stdio: 'inherit' });
 
   console.log('\n>> [3/3] Compilando aplicación web React (Production Build)...');
-  execSync('npm run --prefix client build', {
+  execSync('npm run build', {
+    cwd: clientDir,
     stdio: 'inherit',
     env: {
       ...process.env,
@@ -23,11 +36,11 @@ try {
     },
   });
 
-  const buildPath = path.resolve(__dirname, 'client/build');
-  if (fs.existsSync(buildPath)) {
-    console.log('\n✅ COMPILACIÓN EXITOSA: Archivos generados en client/build');
+  const buildPath = path.resolve(clientDir, 'build');
+  if (fs.existsSync(buildPath) && fs.existsSync(path.join(buildPath, 'index.html'))) {
+    console.log('\n✅ COMPILACIÓN EXITOSA: React build generado correctamente en:', buildPath);
   } else {
-    console.warn('\n⚠️ Advertencia: No se encontró la carpeta client/build');
+    console.warn('\n⚠️ Advertencia: No se encontró client/build/index.html');
   }
 } catch (error) {
   console.error('\n❌ ERROR DURANTE LA COMPILACIÓN:', error.message);

@@ -1,4 +1,2 @@
-#!/usr/bin/env bash
-set -o errexit
-
+#!/bin/sh
 node build.js
