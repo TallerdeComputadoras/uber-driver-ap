@@ -1,89 +1,161 @@
 const mongoose = require('mongoose');
 
-const tripSchema = new mongoose.Schema({
-  driver: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+const tripSchema = new mongoose.Schema(
+  {
+    driver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    // Pre-trip data (captured when driver starts shift)
+    startMileage: {
+      type: Number,
+      required: [true, 'Por favor ingresa el kilometraje al iniciar'],
+    },
+    startFuelLevel: {
+      type: Number, // % o litros restantes
+      required: [true, 'Por favor ingresa el nivel de nafta al iniciar'],
+    },
+    startFuelLevelDate: {
+      type: Date,
+      default: Date.now,
+    },
+    // Post-trip data (captured when driver ends shift)
+    endMileage: {
+      type: Number,
+    },
+    endFuelLevel: {
+      type: Number, // % o litros restantes
+    },
+    fuelLitersAdded: {
+      type: Number, // litros de nafta cargados en el turno (0 si no cargó)
+      default: 0,
+    },
+    moneyObtained: {
+      type: Number, // dinero recaudado total en el turno
+      default: 0,
+    },
+    date: {
+      type: Date,
+      default: Date.now,
+    },
+    // Métricas calculadas
+    kilometersDone: {
+      type: Number,
+      default: 0,
+    },
+    fuelConsumedLiters: {
+      type: Number,
+      default: 0,
+    },
+    fuelCost: {
+      type: Number,
+      default: 0,
+    },
+    netProfit: {
+      type: Number,
+      default: 0,
+    },
+    // Retenciones automáticas
+    carWearAmount: {
+      type: Number, // 10% de ganancia neta por desgaste del auto
+      default: 0,
+    },
+    carReplacementAmount: {
+      type: Number, // 10% de ganancia neta para futuro cambio del auto
+      default: 0,
+    },
+    totalTransferAmount: {
+      type: Number, // suma de las 2 retenciones
+      default: 0,
+    },
+    // Estado de la transferencia
+    transferStatus: {
+      type: String,
+      enum: ['pending', 'paid_pending_approval', 'approved'],
+      default: 'pending',
+    },
+    transferReportedAt: {
+      type: Date,
+    },
+    transferApprovedAt: {
+      type: Date,
+    },
+    // Control de administración
+    isCancelled: {
+      type: Boolean,
+      default: false,
+    },
+    editedByAdmin: {
+      type: Boolean,
+      default: false,
+    },
+    editedFields: {
+      type: [String],
+      default: [],
+    },
+    adminNotes: {
+      type: String,
+      default: '',
+    },
+    durationMinutes: {
+      type: Number,
+    },
   },
-  // Pre-trip data (captured when driver starts shift)
-  startMileage: {
-    type: Number,
-    required: [true, 'Por favor ingresa el kilometraje al iniciar'],
-  },
-  startFuelLevel: {
-    type: Number, // en litros restantes
-    required: [true, 'Por favor ingresa el nivel de nafta al iniciar'],
-  },
-  startFuelLevelDate: {
-    type: Date,
-    default: Date.now,
-  },
-  // Post-trip data (captured when driver ends shift)
-  endMileage: {
-    type: Number,
-    required: [true, 'Por favor ingresa el kilometraje al finalizar'],
-  },
-  endFuelLevel: {
-    type: Number, // en litros restantes
-    required: [true, 'Por favor ingresa el nivel de nafta al finalizar'],
-  },
-  fuelLitersAdded: {
-    type: Number, // liters of fuel added if any (0 if none)
-    default: 0,
-  },
-  moneyObtained: {
-    type: Number, // money earned from the trip
-    required: [true, 'Por favor ingresa el dinero obtenido'],
-  },
-  date: {
-    type: Date,
-    default: Date.now,
-  },
-  // Calculated fields (can be computed later)
-  kilometersDone: {
-    type: Number,
-    // Computed: endMileage - startMileage
-  },
-  fuelConsumedLiters: {
-    type: Number,
-    // Computed based on mileage difference and fuel level change
-  },
-  fuelCost: {
-    type: Number,
-    // Computed: fuelConsumedLiters * fuel price from admin settings
-  },
-  // Duration in minutes (optional)
-  durationMinutes: {
-    type: Number,
-  },
-}, { timestamps: true });
+  { timestamps: true }
+);
 
 // Method to compute kilometers done
 tripSchema.methods.computeKilometers = function () {
-  if (this.endMileage && this.startMileage) {
-    this.kilometersDone = this.endMileage - this.startMileage;
+  if (this.endMileage !== undefined && this.startMileage !== undefined) {
+    this.kilometersDone = Math.max(0, Number(this.endMileage) - Number(this.startMileage));
   }
   return this.kilometersDone;
 };
 
 // Method to compute fuel consumed liters
-// Logic: (startFuelLevel - endFuelLevel) + fuelLitersAdded
 tripSchema.methods.computeFuelConsumed = function () {
-  // fuelConsumed = startFuelLevel - endFuelLevel + fuelLitersAdded
-  // But ensure not negative
-  const start = this.startFuelLevel || 0;
-  const end = this.endFuelLevel || 0;
-  const added = this.fuelLitersAdded || 0;
+  const start = Number(this.startFuelLevel) || 0;
+  const end = Number(this.endFuelLevel) || 0;
+  const added = Number(this.fuelLitersAdded) || 0;
   this.fuelConsumedLiters = Math.max(0, start - end + added);
   return this.fuelConsumedLiters;
 };
 
 // Method to compute fuel cost using a given price per liter
 tripSchema.methods.computeFuelCost = function (pricePerLiter) {
-  const consumed = this.fuelConsumedLiters || 0;
-  this.fuelCost = consumed * (pricePerLiter || 0);
+  const consumed = Number(this.fuelConsumedLiters) || 0;
+  this.fuelCost = Math.round(consumed * (Number(pricePerLiter) || 0) * 100) / 100;
   return this.fuelCost;
+};
+
+// Complete computation of all shift metrics
+tripSchema.methods.computeMetrics = function (pricePerLiter = 0) {
+  this.computeKilometers();
+  this.computeFuelConsumed();
+  this.computeFuelCost(pricePerLiter);
+
+  const money = Number(this.moneyObtained) || 0;
+  const cost = Number(this.fuelCost) || 0;
+  // Ganancia neta = dinero obtenido - costo combustible
+  this.netProfit = Math.max(0, Math.round((money - cost) * 100) / 100);
+
+  // 10% desgaste del auto
+  this.carWearAmount = Math.round((this.netProfit * 0.10) * 100) / 100;
+  // 10% futuro cambio del auto
+  this.carReplacementAmount = Math.round((this.netProfit * 0.10) * 100) / 100;
+  // Total a transferir
+  this.totalTransferAmount = Math.round((this.carWearAmount + this.carReplacementAmount) * 100) / 100;
+
+  return {
+    kilometersDone: this.kilometersDone,
+    fuelConsumedLiters: this.fuelConsumedLiters,
+    fuelCost: this.fuelCost,
+    netProfit: this.netProfit,
+    carWearAmount: this.carWearAmount,
+    carReplacementAmount: this.carReplacementAmount,
+    totalTransferAmount: this.totalTransferAmount,
+  };
 };
 
 const Trip = mongoose.model('Trip', tripSchema);

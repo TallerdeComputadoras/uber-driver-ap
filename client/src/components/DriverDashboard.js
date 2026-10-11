@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import InfoBadge from './InfoBadge';
 
 function DriverDashboard({ token: propToken }) {
   const token = propToken || localStorage.getItem('token') || '';
@@ -18,10 +19,13 @@ function DriverDashboard({ token: propToken }) {
   // Notifications / feedback
   const [message, setMessage] = useState({ type: '', text: '' });
   const [loadingTrip, setLoadingTrip] = useState(false);
+  const [lastClosedTrip, setLastClosedTrip] = useState(null);
+
+  // Shifts history
+  const [myTrips, setMyTrips] = useState([]);
+  const [loadingTripsList, setLoadingTripsList] = useState(false);
 
   // State for stats
-  const [drivers, setDrivers] = useState([]);
-  const [selectedDriverId, setSelectedDriverId] = useState(currentUserId);
   const [period, setPeriod] = useState('month');
   const [stats, setStats] = useState({
     tripCount: 0,
@@ -29,44 +33,47 @@ function DriverDashboard({ token: propToken }) {
     totalMoney: 0,
     totalFuelCost: 0,
     netProfit: 0,
+    totalCarWear: 0,
+    totalCarReplacement: 0,
+    totalTransfers: 0,
+    pendingApprovalTransfersCount: 0,
     loading: true,
   });
 
   const showNotification = (type, text) => {
     setMessage({ type, text });
-    setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+    setTimeout(() => setMessage({ type: '', text: '' }), 6000);
   };
 
-  // Fetch driver options
-  useEffect(() => {
-    const fetchUserAndDrivers = async () => {
-      if (!token) return;
-      try {
-        const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const user = await res.json();
-          setDrivers([
-            { _id: user._id, name: user.name + ' (Yo)' }
-          ]);
-          if (!selectedDriverId) {
-            setSelectedDriverId(user._id);
-          }
+  // Fetch recent trips of this driver
+  const fetchMyTrips = useCallback(async () => {
+    if (!token) return;
+    setLoadingTripsList(true);
+    try {
+      const res = await fetch('/api/driver/my-trips', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMyTrips(data.trips || []);
+        // Si hay un turno recién finalizado sin transferir, guardarlo como último turno
+        if (data.trips && data.trips.length > 0 && !lastClosedTrip) {
+          setLastClosedTrip(data.trips[0]);
         }
-      } catch (err) {
-        console.error('Error fetching driver profile:', err);
       }
-    };
-    fetchUserAndDrivers();
-  }, [token, selectedDriverId]);
+    } catch (err) {
+      console.error('Error fetching driver trips:', err);
+    } finally {
+      setLoadingTripsList(false);
+    }
+  }, [token, lastClosedTrip]);
 
   // Fetch stats callback
   const fetchStats = useCallback(async () => {
     if (!token) return;
     try {
       setStats((prev) => ({ ...prev, loading: true }));
-      const url = `/api/driver/stats?period=${period}${selectedDriverId ? `&driverId=${selectedDriverId}` : ''}`;
+      const url = `/api/driver/stats?period=${period}&driverId=${currentUserId}`;
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -77,7 +84,11 @@ function DriverDashboard({ token: propToken }) {
           totalKm: data.totalKilometers || 0,
           totalMoney: data.totalMoneyObtained || 0,
           totalFuelCost: data.totalFuelCost || 0,
-          netProfit: (data.totalMoneyObtained || 0) - (data.totalFuelCost || 0),
+          netProfit: data.netProfit || 0,
+          totalCarWear: data.totalCarWear || 0,
+          totalCarReplacement: data.totalCarReplacement || 0,
+          totalTransfers: data.totalTransfers || 0,
+          pendingApprovalTransfersCount: data.pendingApprovalTransfersCount || 0,
           loading: false,
         });
       } else {
@@ -87,11 +98,12 @@ function DriverDashboard({ token: propToken }) {
       console.error('Error fetching stats:', err);
       setStats((prev) => ({ ...prev, loading: false }));
     }
-  }, [token, period, selectedDriverId]);
+  }, [token, period, currentUserId]);
 
   useEffect(() => {
     fetchStats();
-  }, [fetchStats]);
+    fetchMyTrips();
+  }, [fetchStats, fetchMyTrips]);
 
   // Handle pre-trip
   const handleStartTrip = async (e) => {
@@ -119,6 +131,7 @@ function DriverDashboard({ token: propToken }) {
         setStartMileage('');
         setStartFuelLevel('');
         fetchStats();
+        fetchMyTrips();
       } else {
         showNotification('error', data.message || 'Error al guardar el inicio de jornada.');
       }
@@ -153,12 +166,14 @@ function DriverDashboard({ token: propToken }) {
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification('success', data.message || 'Jornada finalizada y calculada exitosamente.');
+        showNotification('success', data.message || 'Jornada finalizada y métricas calculadas con éxito.');
+        setLastClosedTrip(data.trip);
         setEndMileage('');
         setEndFuelLevel('');
         setFuelLitersAdded('');
         setMoneyObtained('');
         fetchStats();
+        fetchMyTrips();
       } else {
         showNotification('error', data.message || 'Error al finalizar la jornada.');
       }
@@ -166,6 +181,32 @@ function DriverDashboard({ token: propToken }) {
       showNotification('error', 'Error de conexión con el servidor.');
     } finally {
       setLoadingTrip(false);
+    }
+  };
+
+  // Informar que la transferencia fue realizada
+  const handleReportTransfer = async (tripId) => {
+    try {
+      const res = await fetch(`/api/driver/trip/${tripId}/report-transfer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification('success', '¡Transferencia informada! Estado: Falta aprobación del Administrador.');
+        if (lastClosedTrip && lastClosedTrip._id === tripId) {
+          setLastClosedTrip(data.trip);
+        }
+        fetchMyTrips();
+        fetchStats();
+      } else {
+        showNotification('error', data.message || 'Error al informar transferencia.');
+      }
+    } catch (err) {
+      showNotification('error', 'Error de conexión.');
     }
   };
 
@@ -185,7 +226,7 @@ function DriverDashboard({ token: propToken }) {
             Panel de Conductor
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginTop: '0.25rem' }}>
-            Bienvenido, <strong style={{ color: 'var(--text-primary)' }}>{currentUserName}</strong>. Registra tus viajes y revisa tu rendimiento.
+            Bienvenido, <strong style={{ color: 'var(--text-primary)' }}>{currentUserName}</strong>. Registra tus viajes y gestiona tus rendiciones.
           </p>
         </div>
       </div>
@@ -194,6 +235,87 @@ function DriverDashboard({ token: propToken }) {
         <div className={`alert ${message.type === 'error' ? 'alert-error' : 'alert-success'}`}>
           <span>{message.type === 'error' ? '⚠️' : '✅'}</span>
           <span>{message.text}</span>
+        </div>
+      )}
+
+      {/* Tarjeta de Retención del Último Turno Cerrado */}
+      {lastClosedTrip && lastClosedTrip.endMileage && (
+        <div className="card" style={{ marginBottom: '2rem', border: '1px solid rgba(245, 158, 11, 0.4)', background: 'linear-gradient(145deg, #111827 0%, #1e1b4b 100%)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+            <div className="card-title" style={{ margin: 0, color: '#facc15' }}>
+              <span>💰</span>
+              <span>Liquidación y Retenciones del Turno ({new Date(lastClosedTrip.date).toLocaleDateString('es-AR')})</span>
+            </div>
+            <div>
+              {lastClosedTrip.transferStatus === 'approved' ? (
+                <span className="badge badge-success" style={{ fontSize: '0.85rem' }}>
+                  ✅ Transferencia Aprobada por Administrador
+                </span>
+              ) : lastClosedTrip.transferStatus === 'paid_pending_approval' ? (
+                <span className="badge badge-warning" style={{ fontSize: '0.85rem' }}>
+                  ⏳ Falta aprobación
+                </span>
+              ) : (
+                <span className="badge badge-pending" style={{ fontSize: '0.85rem' }}>
+                  ⚠️ Pendiente de transferencia
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Ganancia Neta</span>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#38bdf8', marginTop: '0.2rem' }}>
+                ${(lastClosedTrip.netProfit || 0).toFixed(2)}
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ fontSize: '0.75rem', color: '#facc15', textTransform: 'uppercase' }}>🔧 Desgaste Auto (10%)</span>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#facc15', marginTop: '0.2rem' }}>
+                ${(lastClosedTrip.carWearAmount || 0).toFixed(2)}
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ fontSize: '0.75rem', color: '#fb923c', textTransform: 'uppercase' }}>🚘 Futuro Cambio Auto (10%)</span>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fb923c', marginTop: '0.2rem' }}>
+                ${(lastClosedTrip.carReplacementAmount || 0).toFixed(2)}
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+              <span style={{ fontSize: '0.75rem', color: '#6ee7b7', textTransform: 'uppercase' }}>Total a Transferir (20%)</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#34d399', marginTop: '0.2rem' }}>
+                ${(lastClosedTrip.totalTransferAmount || 0).toFixed(2)}
+              </div>
+            </div>
+          </div>
+
+          {/* Botón para marcar transferencia como realizada */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem' }}>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              {lastClosedTrip.transferStatus === 'approved' ? (
+                <span style={{ color: '#34d399' }}>El administrador ha confirmado la recepción de los fondos de este turno.</span>
+              ) : lastClosedTrip.transferStatus === 'paid_pending_approval' ? (
+                <span style={{ color: '#facc15' }}>Has informado la transferencia. Notificación enviada al administrador (Falta aprobación).</span>
+              ) : (
+                <span>Una vez realizada la transferencia bancaria por los <strong>${(lastClosedTrip.totalTransferAmount || 0).toFixed(2)}</strong>, presiona el botón para notificar al administrador.</span>
+              )}
+            </div>
+
+            {lastClosedTrip.transferStatus === 'pending' && (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => handleReportTransfer(lastClosedTrip._id)}
+                style={{ width: 'auto', padding: '0.65rem 1.25rem', background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+              >
+                ✔ Marcar transferencia como realizada
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -254,7 +376,7 @@ function DriverDashboard({ token: propToken }) {
             <span>Finalizar Jornada (Post-Trip)</span>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            Registra el fin de tu turno para calcular consumo, km y rendición.
+            Registra el fin de tu turno para calcular consumo, km, desgaste y transferencias.
           </p>
           <form onSubmit={handleEndTrip}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
@@ -321,7 +443,7 @@ function DriverDashboard({ token: propToken }) {
               disabled={loadingTrip}
               style={{ marginTop: '0.5rem' }}
             >
-              {loadingTrip ? 'Calculando...' : 'Cerrar Turno y Calcular Rendición'}
+              {loadingTrip ? 'Calculando...' : 'Cerrar Turno y Calcular Retenciones'}
             </button>
           </form>
         </div>
@@ -343,24 +465,6 @@ function DriverDashboard({ token: propToken }) {
             <option value="year">Este año</option>
           </select>
         </div>
-
-        {drivers.length > 1 && (
-          <div className="filter-item">
-            <span className="filter-label">Conductor:</span>
-            <select
-              className="form-select"
-              style={{ width: 'auto', padding: '0.5rem 1rem' }}
-              value={selectedDriverId}
-              onChange={(e) => setSelectedDriverId(e.target.value)}
-            >
-              {drivers.map((d) => (
-                <option key={d._id} value={d._id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
       </div>
 
       {/* KPI Stats Cards */}
@@ -386,106 +490,129 @@ function DriverDashboard({ token: propToken }) {
         </div>
 
         <div className="stat-card">
-          <div className="stat-card-label">Costo Combustible</div>
-          <div className="stat-card-value" style={{ color: '#f87171' }}>
-            ${(stats.totalFuelCost || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <div className="stat-card-sub">Gasto estimado</div>
-        </div>
-
-        <div className="stat-card" style={{ background: 'linear-gradient(145deg, #111827 0%, #064e3b 100%)' }}>
-          <div className="stat-card-label" style={{ color: '#a7f3d0' }}>Ganancia Neta</div>
+          <div className="stat-card-label">Ganancia Neta</div>
           <div className="stat-card-value" style={{ color: '#34d399' }}>
             ${(stats.netProfit || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <div className="stat-card-sub" style={{ color: '#6ee7b7' }}>Bruto - Combustible</div>
+          <div className="stat-card-sub">Bruto - Nafta</div>
+        </div>
+
+        <div className="stat-card" style={{ background: 'linear-gradient(145deg, #111827 0%, #312e81 100%)' }}>
+          <div className="stat-card-label" style={{ color: '#fbbf24' }}>Total Retenciones (20%)</div>
+          <div className="stat-card-value" style={{ color: '#facc15' }}>
+            ${(stats.totalTransfers || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="stat-card-sub" style={{ color: '#fef08a' }}>10% Desgaste + 10% Cambio</div>
         </div>
       </div>
 
-      {/* Visual Resource Distribution */}
-      <div className="card" style={{ marginTop: '1.5rem' }}>
+      {/* Historial de Turnos y Estado de Transferencias */}
+      <div className="card" style={{ marginTop: '2rem' }}>
         <div className="card-title">
-          <span>📊</span>
-          <span>Eficiencia y Distribución de Recursos</span>
+          <span>📋</span>
+          <span>Historial de Turnos y Transferencias</span>
         </div>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+          Revisa tus turnos, los importes a transferir y las modificaciones autorizadas.
+        </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', alignItems: 'center' }}>
-          <div>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem' }}>
-              Relación entre ingresos totales y costo de combustible consumido en el período ({periodLabels[period]}):
-            </p>
+        {loadingTripsList ? (
+          <p style={{ color: 'var(--text-muted)', padding: '1rem' }}>Cargando turnos...</p>
+        ) : myTrips.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', padding: '1rem' }}>No tienes turnos registrados aún.</p>
+        ) : (
+          <div className="table-container">
+            <table className="styled-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>KM Inicial / Final</th>
+                  <th>Recaudado</th>
+                  <th>Ganancia Neta</th>
+                  <th>Desgaste (10%)</th>
+                  <th>Cambio Auto (10%)</th>
+                  <th>Total Transferir</th>
+                  <th>Estado Transferencia</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myTrips.map((t) => {
+                  const isWearEdited = t.editedFields && (t.editedFields.includes('carWearAmount') || t.editedFields.includes('moneyObtained'));
+                  const isReplacementEdited = t.editedFields && (t.editedFields.includes('carReplacementAmount') || t.editedFields.includes('moneyObtained'));
+                  const isKmEdited = t.editedFields && (t.editedFields.includes('startMileage') || t.editedFields.includes('endMileage'));
+                  const isMoneyEdited = t.editedFields && t.editedFields.includes('moneyObtained');
 
-            <div style={{ marginBottom: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
-                <span style={{ color: '#34d399', fontWeight: 600 }}>Rendimiento Neto</span>
-                <span>
-                  {stats.totalMoney > 0
-                    ? `${Math.max(0, Math.round((stats.netProfit / stats.totalMoney) * 100))}%`
-                    : '100%'}
-                </span>
-              </div>
-              <div style={{ height: '10px', background: 'var(--bg-input)', borderRadius: '9999px', overflow: 'hidden' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${stats.totalMoney > 0 ? Math.min(100, Math.max(0, (stats.netProfit / stats.totalMoney) * 100)) : 100}%`,
-                    background: 'linear-gradient(90deg, #10b981, #059669)',
-                    borderRadius: '9999px',
-                    transition: 'width 0.5s ease',
-                  }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
-                <span style={{ color: '#f87171', fontWeight: 600 }}>Impacto del Combustible</span>
-                <span>
-                  {stats.totalMoney > 0
-                    ? `${Math.min(100, Math.round((stats.totalFuelCost / stats.totalMoney) * 100))}%`
-                    : '0%'}
-                </span>
-              </div>
-              <div style={{ height: '10px', background: 'var(--bg-input)', borderRadius: '9999px', overflow: 'hidden' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${stats.totalMoney > 0 ? Math.min(100, (stats.totalFuelCost / stats.totalMoney) * 100) : 0}%`,
-                    background: 'linear-gradient(90deg, #ef4444, #dc2626)',
-                    borderRadius: '9999px',
-                    transition: 'width 0.5s ease',
-                  }}
-                />
-              </div>
-            </div>
+                  return (
+                    <tr key={t._id} style={{ opacity: t.isCancelled ? 0.5 : 1 }}>
+                      <td>
+                        {new Date(t.date || t.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        {t.isCancelled && <span className="badge badge-danger" style={{ marginLeft: '6px' }}>Anulado</span>}
+                      </td>
+                      <td>
+                        <div className="info-field-wrapper">
+                          <span>{t.startMileage} → {t.endMileage || 'En curso'}</span>
+                          {isKmEdited && <InfoBadge text="Editado por administrador" />}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="info-field-wrapper">
+                          <span>${(t.moneyObtained || 0).toFixed(2)}</span>
+                          {isMoneyEdited && <InfoBadge text="Editado por administrador" />}
+                        </div>
+                      </td>
+                      <td style={{ color: '#38bdf8', fontWeight: 600 }}>
+                        ${(t.netProfit || 0).toFixed(2)}
+                      </td>
+                      <td>
+                        <div className="info-field-wrapper">
+                          <span style={{ color: '#facc15' }}>${(t.carWearAmount || 0).toFixed(2)}</span>
+                          {isWearEdited && <InfoBadge text="Editado por administrador" />}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="info-field-wrapper">
+                          <span style={{ color: '#fb923c' }}>${(t.carReplacementAmount || 0).toFixed(2)}</span>
+                          {isReplacementEdited && <InfoBadge text="Editado por administrador" />}
+                        </div>
+                      </td>
+                      <td style={{ color: '#34d399', fontWeight: 700 }}>
+                        ${(t.totalTransferAmount || 0).toFixed(2)}
+                      </td>
+                      <td>
+                        {t.transferStatus === 'approved' ? (
+                          <span className="badge badge-success">Aprobada</span>
+                        ) : t.transferStatus === 'paid_pending_approval' ? (
+                          <span className="badge badge-warning">Falta aprobación</span>
+                        ) : (
+                          <span className="badge badge-pending">Pendiente</span>
+                        )}
+                      </td>
+                      <td>
+                        {t.transferStatus === 'pending' && t.endMileage && !t.isCancelled && (
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            onClick={() => handleReportTransfer(t._id)}
+                            style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem', width: 'auto' }}
+                          >
+                            Tildar Transferido
+                          </button>
+                        )}
+                        {t.transferStatus === 'paid_pending_approval' && (
+                          <span style={{ fontSize: '0.8rem', color: '#facc15' }}>En revisión</span>
+                        )}
+                        {t.transferStatus === 'approved' && (
+                          <span style={{ fontSize: '0.8rem', color: '#34d399' }}>✓ Confirmado</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-
-          <div style={{ background: 'var(--bg-input)', padding: '1.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-            <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.75rem', color: 'var(--text-primary)' }}>
-              Resumen Operativo
-            </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.85rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                <span>Ingreso Promedio por KM:</span>
-                <strong style={{ color: 'var(--text-primary)' }}>
-                  {stats.totalKm > 0 ? `$${(stats.totalMoney / stats.totalKm).toFixed(2)}/km` : '$0.00/km'}
-                </strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                <span>Costo de Nafta por KM:</span>
-                <strong style={{ color: 'var(--text-primary)' }}>
-                  {stats.totalKm > 0 ? `$${(stats.totalFuelCost / stats.totalKm).toFixed(2)}/km` : '$0.00/km'}
-                </strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-                <span>Ganancia Neta por KM:</span>
-                <strong style={{ color: '#34d399' }}>
-                  {stats.totalKm > 0 ? `$${(stats.netProfit / stats.totalKm).toFixed(2)}/km` : '$0.00/km'}
-                </strong>
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -5,10 +5,26 @@ const Trip = require('../models/Trip');
 const FuelPrice = require('../models/FuelPrice');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const authMiddleware = require('../middleware/auth');
+const { sendPasswordResetEmail } = require('../utils/email');
 require('dotenv').config();
 
 // Helper: generate JWT token
-const generateToken = (id, role) => jwt.sign({ id, role }, process.env.JWT_SECRET, { expiresIn: '30d' });
+const generateToken = (id, role) =>
+  jwt.sign({ id, role }, process.env.JWT_SECRET || 'uber_driver_secret_key_change_in_production', {
+    expiresIn: '30d',
+  });
+
+// Helper: generar contraseña aleatoria segura
+const generateRandomPassword = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!#$';
+  let password = '';
+  for (let i = 0; i < 8; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+};
 
 // @desc    Register new driver
 // @route   POST /api/auth/register
@@ -20,15 +36,17 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'Por favor completa todos los campos' });
     }
     // Check if user exists
-    const existingUser = await User.findOne({ email });
+    const cleanEmail = email.toLowerCase().trim();
+    const existingUser = await User.findOne({ email: cleanEmail });
     if (existingUser) {
       return res.status(400).json({ message: 'El correo ya está registrado' });
     }
     const user = new User({
-      name,
-      email,
+      name: name.trim(),
+      email: cleanEmail,
       password,
       role: 'driver',
+      isActive: true,
     });
     await user.save();
     const token = generateToken(user._id, user.role);
@@ -50,22 +68,25 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { password, identifier } = req.body; // identifier can be email or "Administrador"
+    if (!password || !identifier) {
+      return res.status(400).json({ message: 'Por favor ingresa usuario/correo y contraseña' });
+    }
+
     let user;
     // Check if trying to login as admin
-    if (identifier === 'Administrador') {
-      // Hardcoded admin credentials
+    if (identifier === 'Administrador' || identifier.toLowerCase() === 'admin@uberclone.com') {
       user = await User.findOne({ role: 'admin' });
       if (!user) {
-        // Create admin if not exists (using hardcoded password)
+        // Create initial admin if not exists
         user = new User({
           name: 'Administrador',
           email: 'admin@uberclone.com',
           password: 'Chofer4059!', // Will be hashed pre-save
           role: 'admin',
+          isActive: true,
         });
         await user.save();
       } else {
-        // Compare password provided in req.body
         const isMatch = await user.comparePassword(password);
         if (!isMatch) {
           return res.status(401).json({ message: 'Credenciales de administrador incorrectas' });
@@ -82,6 +103,14 @@ router.post('/login', async (req, res) => {
         return res.status(401).json({ message: 'Credenciales incorrectas' });
       }
     }
+
+    // Comprobar si el usuario fue dado de baja por la administración
+    if (user.isActive === false) {
+      return res.status(403).json({
+        message: 'Esta cuenta ha sido dada de baja por la administración. Comuníquese para más información.',
+      });
+    }
+
     const token = generateToken(user._id, user.role);
     res.json({
       _id: user._id,
@@ -98,55 +127,98 @@ router.post('/login', async (req, res) => {
 // @desc    Get current user profile
 // @route   GET /api/auth/me
 // @access  Private
-const authMiddleware = require('../middleware/auth');
 router.get('/me', authMiddleware, async (req, res) => {
   try {
-    // req.user is set by auth middleware
     const user = await User.findById(req.user.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
     res.json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// @desc    Forgot password (request reset token)
+// @desc    Forgot password (genera contraseña aleatoria nueva y la envía por email)
 // @route   POST /api/auth/forgot-password
 // @access  Public
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ message: 'No hay una cuenta con ese correo' });
+    if (!email) {
+      return res.status(400).json({ message: 'Por favor ingresa tu correo electrónico' });
     }
-    // Generate a reset token (simple approach: send email with token)
-    // For now, just respond with success; in production send email
-    const resetToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    // In real app, send email with reset link containing token
-    res.json({ message: 'Se ha enviado un enlace de restablecimiento a tu correo', resetToken });
+
+    const cleanEmail = email.toLowerCase().trim();
+    const user = await User.findOne({ email: cleanEmail });
+
+    if (!user) {
+      return res.status(404).json({ message: 'No existe una cuenta registrada con ese correo electrónico' });
+    }
+
+    if (user.isActive === false) {
+      return res.status(403).json({ message: 'Esta cuenta se encuentra dada de baja. Contacte al administrador.' });
+    }
+
+    // Generar contraseña aleatoria provisoria
+    const tempPassword = generateRandomPassword();
+    user.password = tempPassword; // el pre('save') hook se encarga del hashing bcrypt
+    await user.save();
+
+    // Enviar correo
+    const emailResult = await sendPasswordResetEmail({
+      toEmail: user.email,
+      userName: user.name,
+      tempPassword,
+    });
+
+    res.json({
+      message: 'Se ha generado y enviado una nueva contraseña provisoria a tu correo.',
+      // Si el servidor no tiene SMTP configurado, informamos la contraseña generada para facilitar pruebas
+      tempPasswordNotice: emailResult.simulated
+        ? `[Modo desarrollo/sin SMTP]: Tu nueva contraseña provisoria es: ${tempPassword}`
+        : null,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// @desc    Reset password with token
-// @route   POST /api/auth/reset-password
-// @access  Public
-router.post('/reset-password', async (req, res) => {
+// @desc    Cambio de contraseña para usuario autenticado
+// @route   POST /api/auth/change-password
+// @access  Private
+router.post('/change-password', authMiddleware, async (req, res) => {
   try {
-    const { token, newPassword } = req.body;
-    if (!token || !newPassword) {
-      return res.status(400).json({ message: 'Faltan datos' });
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({ message: 'Por favor completa todos los campos requeridos' });
     }
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId);
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'La nueva contraseña debe tener al menos 6 caracteres' });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: 'La nueva contraseña y su confirmación no coinciden' });
+    }
+
+    const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
-    // Update password (pre-save hook will hash it)
+
+    // Verificar contraseña actual
+    const isCurrentMatch = await user.comparePassword(currentPassword);
+    if (!isCurrentMatch) {
+      return res.status(400).json({ message: 'La contraseña actual ingresada es incorrecta' });
+    }
+
+    // Guardar nueva contraseña
     user.password = newPassword;
     await user.save();
-    res.json({ message: 'Contraseña restablecida exitosamente' });
+
+    res.json({ message: '¡Tu contraseña ha sido actualizada con éxito!' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

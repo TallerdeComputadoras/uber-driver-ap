@@ -4,11 +4,13 @@ import Login from './components/Login';
 import Register from './components/Register';
 import DriverDashboard from './components/DriverDashboard';
 import AdminPanel from './components/AdminPanel';
+import ChangePasswordModal from './components/ChangePasswordModal';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [userRole, setUserRole] = useState(localStorage.getItem('userRole') || '');
   const [userName, setUserName] = useState(localStorage.getItem('userName') || '');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -87,6 +89,15 @@ function App() {
                   <span>{userName || 'Usuario'}</span>
                   {userRole === 'admin' && <span className="badge badge-info">Admin</span>}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(true)}
+                  className="btn-logout"
+                  title="Cambiar contraseña de tu cuenta"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <span>🔑</span> Clave
+                </button>
                 <button onClick={handleLogout} className="btn-logout" title="Cerrar sesión">
                   Salir
                 </button>
@@ -168,6 +179,13 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+
+      {/* Modal para cambiar contraseña */}
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        token={token}
+      />
     </div>
   );
 }

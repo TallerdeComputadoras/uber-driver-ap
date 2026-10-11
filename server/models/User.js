@@ -29,6 +29,9 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  deactivatedAt: {
+    type: Date,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

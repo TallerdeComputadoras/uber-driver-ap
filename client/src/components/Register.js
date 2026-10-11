@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import PasswordInput from './PasswordInput';
 
 function Register({ onRegisterSuccess }) {
   const [formData, setFormData] = useState({
@@ -21,6 +22,11 @@ function Register({ onRegisterSuccess }) {
     const { name, email, password } = formData;
     if (!name || !email || !password) {
       setError('Por favor completa todos los campos requeridos.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres.');
       return;
     }
 
@@ -60,7 +66,7 @@ function Register({ onRegisterSuccess }) {
     <div className="auth-container">
       <div className="auth-header">
         <h1 className="auth-title">Crear Cuenta</h1>
-        <p className="auth-subtitle">Regístrate como conductor para llevar el control de tus viajes</p>
+        <p className="auth-subtitle">Regístrate como conductor para llevar el control de tus turnos</p>
       </div>
 
       {error && (
@@ -109,11 +115,9 @@ function Register({ onRegisterSuccess }) {
           <label className="form-label" htmlFor="password">
             Contraseña
           </label>
-          <input
+          <PasswordInput
             id="password"
-            type="password"
             name="password"
-            className="form-input"
             placeholder="Mínimo 6 caracteres"
             value={formData.password}
             onChange={handleChange}
@@ -126,7 +130,7 @@ function Register({ onRegisterSuccess }) {
           type="submit"
           className="btn-primary"
           disabled={loading}
-          style={{ opacity: loading ? 0.7 : 1, marginTop: '0.5rem' }}
+          style={{ opacity: loading ? 0.7 : 1, marginTop: '0.75rem' }}
         >
           {loading ? 'Registrando...' : 'Comenzar Ahora'}
         </button>
