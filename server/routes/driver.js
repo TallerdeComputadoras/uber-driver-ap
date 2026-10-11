@@ -31,17 +31,14 @@ const driverAuth = async (req, res, next) => {
 // @access  Private (driver)
 router.post('/pre-trip', driverAuth, async (req, res) => {
   try {
-    const { startMileage, startFuelLevel } = req.body;
-    if (startMileage === undefined || startFuelLevel === undefined) {
-      return res.status(400).json({ message: 'Por favor ingresa el kilometraje y nivel de nafta' });
-    }
+    // Al iniciar turno ya no se ingresan kilómetros del auto
     const trip = new Trip({
       driver: req.user.id,
-      startMileage: Number(startMileage),
-      startFuelLevel: Number(startFuelLevel),
+      date: new Date(),
+      isFinished: false,
     });
     await trip.save();
-    res.status(201).json({ message: 'Inicio de jornada guardado con éxito', trip });
+    res.status(201).json({ message: 'Turno iniciado con éxito', trip });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -52,29 +49,35 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
 // @access  Private (driver)
 router.post('/post-trip', driverAuth, async (req, res) => {
   try {
-    const { endMileage, endFuelLevel, fuelLitersAdded, moneyObtained } = req.body;
-    if (endMileage === undefined || endFuelLevel === undefined || moneyObtained === undefined) {
-      return res.status(400).json({ message: 'Por favor completa todos los campos obligatorios' });
+    const { kilometersDone, moneyObtained, endMileage, endFuelLevel, fuelLitersAdded } = req.body;
+
+    const parsedKm = kilometersDone !== undefined && kilometersDone !== ''
+      ? Number(kilometersDone)
+      : (endMileage !== undefined && endMileage !== '' ? Number(endMileage) : null);
+
+    if (parsedKm === null || isNaN(parsedKm) || parsedKm < 0 || moneyObtained === undefined || moneyObtained === '') {
+      return res.status(400).json({ message: 'Por favor ingresa los kilómetros realizados según apps y el dinero recaudado' });
     }
 
-    // Find latest active trip without endMileage
-    let activeTrip = await Trip.findOne({ driver: req.user.id, endMileage: null }).sort({ createdAt: -1 });
+    // Buscar turno activo no finalizado del chofer
+    let activeTrip = await Trip.findOne({ driver: req.user.id, isFinished: false }).sort({ createdAt: -1 });
 
     if (!activeTrip) {
-      // If no pre-trip exists, create one with estimated initial values
+      // Si no inició turno previamente con pre-trip, crear uno nuevo directamente
       activeTrip = new Trip({
         driver: req.user.id,
-        startMileage: Math.max(0, Number(endMileage) - 10),
-        startFuelLevel: 100,
+        date: new Date(),
       });
     }
 
-    activeTrip.endMileage = Number(endMileage);
-    activeTrip.endFuelLevel = Number(endFuelLevel);
-    activeTrip.fuelLitersAdded = Number(fuelLitersAdded) || 0;
+    activeTrip.kilometersDone = parsedKm;
     activeTrip.moneyObtained = Number(moneyObtained);
+    if (endMileage !== undefined && endMileage !== '') activeTrip.endMileage = Number(endMileage);
+    if (endFuelLevel !== undefined && endFuelLevel !== '') activeTrip.endFuelLevel = Number(endFuelLevel);
+    if (fuelLitersAdded !== undefined && fuelLitersAdded !== '') activeTrip.fuelLitersAdded = Number(fuelLitersAdded);
+    activeTrip.isFinished = true;
 
-    // Compute all metrics using current fuel price
+    // Compute all metrics using current fuel price (10L / 100km rate -> kms / 10)
     const fuelPrice = await FuelPrice.getCurrentPrice();
     activeTrip.computeMetrics(fuelPrice);
 
@@ -86,7 +89,7 @@ router.post('/post-trip', driverAuth, async (req, res) => {
     await activeTrip.save();
 
     res.json({
-      message: 'Jornada finalizada y métricas calculadas con éxito',
+      message: 'Turno finalizado y métricas calculadas con éxito',
       trip: activeTrip,
       summary: {
         kilometersDone: activeTrip.kilometersDone,

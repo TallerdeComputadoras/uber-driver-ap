@@ -1,20 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import InfoBadge from './InfoBadge';
+import FuelCalculator from './FuelCalculator';
 
 function DriverDashboard({ token: propToken }) {
   const token = propToken || localStorage.getItem('token') || '';
   const currentUserId = localStorage.getItem('userId') || '';
   const currentUserName = localStorage.getItem('userName') || 'Conductor';
 
-  // State for pre-trip form
-  const [startMileage, setStartMileage] = useState('');
-  const [startFuelLevel, setStartFuelLevel] = useState('');
-
   // State for post-trip form
-  const [endMileage, setEndMileage] = useState('');
-  const [endFuelLevel, setEndFuelLevel] = useState('');
-  const [fuelLitersAdded, setFuelLitersAdded] = useState('');
+  const [kilometersDone, setKilometersDone] = useState('');
   const [moneyObtained, setMoneyObtained] = useState('');
+  const [fuelLitersAdded, setFuelLitersAdded] = useState('');
 
   // Notifications / feedback
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -105,13 +101,9 @@ function DriverDashboard({ token: propToken }) {
     fetchMyTrips();
   }, [fetchStats, fetchMyTrips]);
 
-  // Handle pre-trip
+  // Handle pre-trip: Iniciar turno sin ingresar kilómetros del auto
   const handleStartTrip = async (e) => {
     e.preventDefault();
-    if (!startMileage || !startFuelLevel) {
-      showNotification('error', 'Ingresa el kilometraje y nivel de combustible.');
-      return;
-    }
     setLoadingTrip(true);
     try {
       const res = await fetch('/api/driver/pre-trip', {
@@ -120,20 +112,15 @@ function DriverDashboard({ token: propToken }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          startMileage: Number(startMileage),
-          startFuelLevel: Number(startFuelLevel),
-        }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification('success', data.message || 'Jornada iniciada con éxito.');
-        setStartMileage('');
-        setStartFuelLevel('');
+        showNotification('success', data.message || 'Turno iniciado con éxito. ¡Buen viaje!');
         fetchStats();
         fetchMyTrips();
       } else {
-        showNotification('error', data.message || 'Error al guardar el inicio de jornada.');
+        showNotification('error', data.message || 'Error al iniciar turno.');
       }
     } catch (err) {
       showNotification('error', 'Error al conectar con el servidor.');
@@ -142,11 +129,11 @@ function DriverDashboard({ token: propToken }) {
     }
   };
 
-  // Handle post-trip
+  // Handle post-trip: Finalizar turno con Kms realizados según apps de conductores
   const handleEndTrip = async (e) => {
     e.preventDefault();
-    if (!endMileage || !endFuelLevel || moneyObtained === '') {
-      showNotification('error', 'Completa los campos para finalizar la jornada.');
+    if (kilometersDone === '' || moneyObtained === '') {
+      showNotification('error', 'Por favor ingresa los kilómetros según apps y el dinero recaudado.');
       return;
     }
     setLoadingTrip(true);
@@ -158,24 +145,22 @@ function DriverDashboard({ token: propToken }) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          endMileage: Number(endMileage),
-          endFuelLevel: Number(endFuelLevel),
-          fuelLitersAdded: Number(fuelLitersAdded) || 0,
+          kilometersDone: Number(kilometersDone),
           moneyObtained: Number(moneyObtained),
+          fuelLitersAdded: Number(fuelLitersAdded) || 0,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification('success', data.message || 'Jornada finalizada y métricas calculadas con éxito.');
+        showNotification('success', data.message || 'Turno finalizado y métricas calculadas con éxito.');
         setLastClosedTrip(data.trip);
-        setEndMileage('');
-        setEndFuelLevel('');
-        setFuelLitersAdded('');
+        setKilometersDone('');
         setMoneyObtained('');
+        setFuelLitersAdded('');
         fetchStats();
         fetchMyTrips();
       } else {
-        showNotification('error', data.message || 'Error al finalizar la jornada.');
+        showNotification('error', data.message || 'Error al finalizar el turno.');
       }
     } catch (err) {
       showNotification('error', 'Error de conexión con el servidor.');
@@ -239,7 +224,7 @@ function DriverDashboard({ token: propToken }) {
       )}
 
       {/* Tarjeta de Retención del Último Turno Cerrado */}
-      {lastClosedTrip && lastClosedTrip.endMileage && (
+      {lastClosedTrip && (lastClosedTrip.kilometersDone || lastClosedTrip.endMileage || lastClosedTrip.totalTransferAmount > 0) && (
         <div className="card" style={{ marginBottom: '2rem', border: '1px solid rgba(245, 158, 11, 0.4)', background: 'linear-gradient(145deg, #111827 0%, #1e1b4b 100%)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
             <div className="card-title" style={{ margin: 0, color: '#facc15' }}>
@@ -263,31 +248,48 @@ function DriverDashboard({ token: propToken }) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.85rem', marginBottom: '1.25rem' }}>
             <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Ganancia Neta</span>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#38bdf8', marginTop: '0.2rem' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Distancia Apps</span>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#f8fafc', marginTop: '0.2rem' }}>
+                {(lastClosedTrip.kilometersDone || 0).toFixed(1)} <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>km</span>
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Combustible</span>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fb923c', marginTop: '0.2rem' }}>
+                ${(lastClosedTrip.fuelCost || 0).toFixed(2)}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                {(lastClosedTrip.fuelConsumedLiters || 0).toFixed(2)} L (10L/100km)
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Ganancia Neta</span>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#38bdf8', marginTop: '0.2rem' }}>
                 ${(lastClosedTrip.netProfit || 0).toFixed(2)}
               </div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <span style={{ fontSize: '0.75rem', color: '#facc15', textTransform: 'uppercase' }}>🔧 Desgaste Auto (10%)</span>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#facc15', marginTop: '0.2rem' }}>
+              <span style={{ fontSize: '0.72rem', color: '#facc15', textTransform: 'uppercase' }}>🔧 Desgaste (10%)</span>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#facc15', marginTop: '0.2rem' }}>
                 ${(lastClosedTrip.carWearAmount || 0).toFixed(2)}
               </div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <span style={{ fontSize: '0.75rem', color: '#fb923c', textTransform: 'uppercase' }}>🚘 Futuro Cambio Auto (10%)</span>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fb923c', marginTop: '0.2rem' }}>
+              <span style={{ fontSize: '0.72rem', color: '#fb923c', textTransform: 'uppercase' }}>🚘 Cambio Auto (10%)</span>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fb923c', marginTop: '0.2rem' }}>
                 ${(lastClosedTrip.carReplacementAmount || 0).toFixed(2)}
               </div>
             </div>
 
             <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-              <span style={{ fontSize: '0.75rem', color: '#6ee7b7', textTransform: 'uppercase' }}>Total a Transferir (20%)</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#34d399', marginTop: '0.2rem' }}>
+              <span style={{ fontSize: '0.72rem', color: '#6ee7b7', textTransform: 'uppercase' }}>Total Transferir (20%)</span>
+              <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#34d399', marginTop: '0.2rem' }}>
                 ${(lastClosedTrip.totalTransferAmount || 0).toFixed(2)}
               </div>
             </div>
@@ -320,7 +322,7 @@ function DriverDashboard({ token: propToken }) {
       )}
 
       {/* Action Cards (Pre-trip & Post-trip) */}
-      <div className="dashboard-grid">
+      <div className="dashboard-grid" style={{ marginBottom: '2rem' }}>
         {/* Pre-trip Card */}
         <div className="card">
           <div className="card-title">
@@ -328,43 +330,21 @@ function DriverDashboard({ token: propToken }) {
             <span>Iniciar Jornada (Pre-Trip)</span>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            Registra los datos del vehículo antes de salir a la calle.
+            Comienza tu turno de trabajo. No se requiere ingresar kilometraje del auto al iniciar.
           </p>
           <form onSubmit={handleStartTrip}>
-            <div className="form-group">
-              <label className="form-label">Kilometraje Odómetro Inicial (km)</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                className="form-input"
-                placeholder="Ej: 142500"
-                value={startMileage}
-                onChange={(e) => setStartMileage(e.target.value)}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Nivel de Combustible Inicial (% o Litros)</label>
-              <input
-                type="number"
-                step="1"
-                min="0"
-                max="100"
-                className="form-input"
-                placeholder="Ej: 80 (%)"
-                value={startFuelLevel}
-                onChange={(e) => setStartFuelLevel(e.target.value)}
-                required
-              />
+            <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px dashed rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '1rem', marginBottom: '1.25rem' }}>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#6ee7b7' }}>
+                ℹ️ Los kilómetros realizados los ingresarás al finalizar el turno, tomados directamente de las <strong>aplicaciones de conductores</strong>.
+              </p>
             </div>
             <button
               type="submit"
               className="btn-primary"
               disabled={loadingTrip}
-              style={{ marginTop: '0.5rem' }}
+              style={{ marginTop: '0.5rem', width: '100%', fontSize: '1.05rem', padding: '0.85rem' }}
             >
-              {loadingTrip ? 'Guardando...' : 'Iniciar Turno'}
+              {loadingTrip ? 'Iniciando...' : '🟢 Iniciar Turno'}
             </button>
           </form>
         </div>
@@ -376,52 +356,29 @@ function DriverDashboard({ token: propToken }) {
             <span>Finalizar Jornada (Post-Trip)</span>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            Registra el fin de tu turno para calcular consumo, km, desgaste y transferencias.
+            Registra los kilómetros indicados por las apps de conductores para calcular consumo y retenciones.
           </p>
           <form onSubmit={handleEndTrip}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              <div className="form-group">
-                <label className="form-label">Odómetro Final (km)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  className="form-input"
-                  placeholder="Ej: 142750"
-                  value={endMileage}
-                  onChange={(e) => setEndMileage(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Nivel Final Combustible (%)</label>
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  max="100"
-                  className="form-input"
-                  placeholder="Ej: 45 (%)"
-                  value={endFuelLevel}
-                  onChange={(e) => setEndFuelLevel(e.target.value)}
-                  required
-                />
-              </div>
+            <div className="form-group">
+              <label className="form-label">
+                Kilómetros realizados según apps de conductores (km)
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                className="form-input"
+                placeholder="Ej: 47.3"
+                value={kilometersDone}
+                onChange={(e) => setKilometersDone(e.target.value)}
+                required
+              />
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                Se calcularán litros consumidos según la tasa de 10 L cada 100 km (kms ÷ 10).
+              </span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              <div className="form-group">
-                <label className="form-label">Nafta Cargada (Litros)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  className="form-input"
-                  placeholder="0 si no cargaste"
-                  value={fuelLitersAdded}
-                  onChange={(e) => setFuelLitersAdded(e.target.value)}
-                />
-              </div>
               <div className="form-group">
                 <label className="form-label">Dinero Recaudado ($)</label>
                 <input
@@ -435,19 +392,35 @@ function DriverDashboard({ token: propToken }) {
                   required
                 />
               </div>
+
+              <div className="form-group">
+                <label className="form-label">Nafta Cargada (Litros - opcional)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  className="form-input"
+                  placeholder="0 si no cargaste"
+                  value={fuelLitersAdded}
+                  onChange={(e) => setFuelLitersAdded(e.target.value)}
+                />
+              </div>
             </div>
 
             <button
               type="submit"
               className="btn-danger"
               disabled={loadingTrip}
-              style={{ marginTop: '0.5rem' }}
+              style={{ marginTop: '0.5rem', width: '100%', fontSize: '1.05rem', padding: '0.85rem' }}
             >
-              {loadingTrip ? 'Calculando...' : 'Cerrar Turno y Calcular Retenciones'}
+              {loadingTrip ? 'Calculando...' : '🏁 Cerrar Turno y Calcular Retenciones'}
             </button>
           </form>
         </div>
       </div>
+
+      {/* Área interactiva: Calculadora de Consumo de Nafta */}
+      <FuelCalculator token={token} />
 
       {/* Filter and Period Controls */}
       <div className="filter-bar">
@@ -526,7 +499,8 @@ function DriverDashboard({ token: propToken }) {
               <thead>
                 <tr>
                   <th>Fecha</th>
-                  <th>KM Inicial / Final</th>
+                  <th>KM Apps</th>
+                  <th>Combustible</th>
                   <th>Recaudado</th>
                   <th>Ganancia Neta</th>
                   <th>Desgaste (10%)</th>
@@ -540,7 +514,7 @@ function DriverDashboard({ token: propToken }) {
                 {myTrips.map((t) => {
                   const isWearEdited = t.editedFields && (t.editedFields.includes('carWearAmount') || t.editedFields.includes('moneyObtained'));
                   const isReplacementEdited = t.editedFields && (t.editedFields.includes('carReplacementAmount') || t.editedFields.includes('moneyObtained'));
-                  const isKmEdited = t.editedFields && (t.editedFields.includes('startMileage') || t.editedFields.includes('endMileage'));
+                  const isKmEdited = t.editedFields && (t.editedFields.includes('kilometersDone') || t.editedFields.includes('startMileage') || t.editedFields.includes('endMileage'));
                   const isMoneyEdited = t.editedFields && t.editedFields.includes('moneyObtained');
 
                   return (
@@ -551,8 +525,20 @@ function DriverDashboard({ token: propToken }) {
                       </td>
                       <td>
                         <div className="info-field-wrapper">
-                          <span>{t.startMileage} → {t.endMileage || 'En curso'}</span>
+                          <span>
+                            {t.kilometersDone !== undefined && t.kilometersDone !== null
+                              ? `${t.kilometersDone} km`
+                              : (t.startMileage ? `${t.startMileage} → ${t.endMileage || 'En curso'}` : 'En curso')}
+                          </span>
                           {isKmEdited && <InfoBadge text="Editado por administrador" />}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '0.85rem' }}>
+                          <span style={{ color: '#fb923c', fontWeight: 600 }}>${(t.fuelCost || 0).toFixed(2)}</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', display: 'block' }}>
+                            {(t.fuelConsumedLiters || 0).toFixed(2)} L
+                          </span>
                         </div>
                       </td>
                       <td>
@@ -589,7 +575,7 @@ function DriverDashboard({ token: propToken }) {
                         )}
                       </td>
                       <td>
-                        {t.transferStatus === 'pending' && t.endMileage && !t.isCancelled && (
+                        {t.transferStatus === 'pending' && (t.kilometersDone || t.endMileage || t.totalTransferAmount > 0) && !t.isCancelled && (
                           <button
                             type="button"
                             className="btn-primary"

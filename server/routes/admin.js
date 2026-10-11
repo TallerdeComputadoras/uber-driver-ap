@@ -220,6 +220,7 @@ router.put('/trip/:id', authMiddleware, adminAuth, async (req, res) => {
     }
 
     const {
+      kilometersDone,
       startMileage,
       endMileage,
       startFuelLevel,
@@ -234,6 +235,10 @@ router.put('/trip/:id', authMiddleware, adminAuth, async (req, res) => {
     const modifiedFields = new Set(trip.editedFields || []);
 
     // Comparar y registrar qué campos fueron modificados
+    if (kilometersDone !== undefined && Number(kilometersDone) !== trip.kilometersDone) {
+      trip.kilometersDone = Number(kilometersDone);
+      modifiedFields.add('kilometersDone');
+    }
     if (startMileage !== undefined && Number(startMileage) !== trip.startMileage) {
       trip.startMileage = Number(startMileage);
       modifiedFields.add('startMileage');

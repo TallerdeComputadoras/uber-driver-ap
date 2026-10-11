@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import PasswordInput from './PasswordInput';
+import FuelCalculator from './FuelCalculator';
 
 function AdminPanel({ token: propToken }) {
   const [token, setToken] = useState(propToken || localStorage.getItem('token') || '');
@@ -285,6 +286,7 @@ function AdminPanel({ token: propToken }) {
   const handleOpenEditTrip = (trip) => {
     setEditingTrip(trip);
     setEditFormData({
+      kilometersDone: trip.kilometersDone !== undefined && trip.kilometersDone !== null ? trip.kilometersDone : '',
       startMileage: trip.startMileage || '',
       endMileage: trip.endMileage || '',
       startFuelLevel: trip.startFuelLevel || '',
@@ -504,6 +506,16 @@ function AdminPanel({ token: propToken }) {
       {/* ========================================================= */}
       {activeTab === 'trips' && (
         <div>
+          {/* Calculadora interactiva de consumo de nafta para el administrador */}
+          <FuelCalculator
+            isAdmin={true}
+            token={token}
+            onPriceUpdated={(newPrice) => {
+              setCurrentFuelPrice(newPrice);
+              fetchTrips();
+            }}
+          />
+
           {/* Filtros */}
           <div className="filter-bar">
             <div className="filter-item">
@@ -554,7 +566,7 @@ function AdminPanel({ token: propToken }) {
                     <tr>
                       <th>Conductor</th>
                       <th>Fecha</th>
-                      <th>KM</th>
+                      <th>KM Apps</th>
                       <th>Recaudado</th>
                       <th>Ganancia Neta</th>
                       <th>Desgaste (10%)</th>
@@ -574,7 +586,14 @@ function AdminPanel({ token: propToken }) {
                           {t.editedByAdmin && <span className="badge badge-info" style={{ marginTop: '3px', marginLeft: '3px' }}>Editado por Admin</span>}
                         </td>
                         <td>{new Date(t.date || t.createdAt).toLocaleDateString('es-AR')}</td>
-                        <td>{t.startMileage} → {t.endMileage || 'En curso'}</td>
+                        <td>
+                          {t.kilometersDone !== undefined && t.kilometersDone !== null
+                            ? `${t.kilometersDone} km`
+                            : (t.startMileage ? `${t.startMileage} → ${t.endMileage || 'En curso'}` : 'En curso')}
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {(t.fuelConsumedLiters || 0).toFixed(1)} L nafta
+                          </div>
+                        </td>
                         <td>${(t.moneyObtained || 0).toFixed(2)}</td>
                         <td style={{ color: '#38bdf8', fontWeight: 600 }}>${(t.netProfit || 0).toFixed(2)}</td>
                         <td style={{ color: '#facc15' }}>${(t.carWearAmount || 0).toFixed(2)}</td>
@@ -872,55 +891,35 @@ function AdminPanel({ token: propToken }) {
             </p>
 
             <form onSubmit={handleSaveTripEdit}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div className="form-group">
-                  <label className="form-label">Odómetro Inicial (km)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="form-input"
-                    value={editFormData.startMileage}
-                    onChange={(e) => setEditFormData({ ...editFormData, startMileage: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Odómetro Final (km)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    className="form-input"
-                    value={editFormData.endMileage}
-                    onChange={(e) => setEditFormData({ ...editFormData, endMileage: e.target.value })}
-                  />
-                </div>
+              <div className="form-group">
+                <label className="form-label" style={{ color: '#38bdf8', fontWeight: 700 }}>
+                  Kilómetros Realizados según Apps de Conductores (km)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  className="form-input"
+                  placeholder="Ej: 47.3"
+                  value={editFormData.kilometersDone}
+                  onChange={(e) => setEditFormData({ ...editFormData, kilometersDone: e.target.value })}
+                />
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  Al guardar, se recalcula el consumo a 10L/100km (kms ÷ 10), ganancia neta y retenciones (10% + 10%).
+                </span>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="form-group">
-                  <label className="form-label">Nafta Inicial (%)</label>
+                  <label className="form-label">Dinero Recaudado ($)</label>
                   <input
                     type="number"
-                    step="1"
+                    step="0.01"
                     className="form-input"
-                    value={editFormData.startFuelLevel}
-                    onChange={(e) => setEditFormData({ ...editFormData, startFuelLevel: e.target.value })}
-                    required
+                    value={editFormData.moneyObtained}
+                    onChange={(e) => setEditFormData({ ...editFormData, moneyObtained: e.target.value })}
                   />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Nafta Final (%)</label>
-                  <input
-                    type="number"
-                    step="1"
-                    className="form-input"
-                    value={editFormData.endFuelLevel}
-                    onChange={(e) => setEditFormData({ ...editFormData, endFuelLevel: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="form-group">
                   <label className="form-label">Nafta Cargada (Litros)</label>
                   <input
@@ -931,14 +930,27 @@ function AdminPanel({ token: propToken }) {
                     onChange={(e) => setEditFormData({ ...editFormData, fuelLitersAdded: e.target.value })}
                   />
                 </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="form-group">
-                  <label className="form-label">Dinero Recaudado ($)</label>
+                  <label className="form-label">Odómetro Inicial (km - opcional)</label>
                   <input
                     type="number"
-                    step="0.01"
+                    step="0.1"
                     className="form-input"
-                    value={editFormData.moneyObtained}
-                    onChange={(e) => setEditFormData({ ...editFormData, moneyObtained: e.target.value })}
+                    value={editFormData.startMileage}
+                    onChange={(e) => setEditFormData({ ...editFormData, startMileage: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Odómetro Final (km - opcional)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="form-input"
+                    value={editFormData.endMileage}
+                    onChange={(e) => setEditFormData({ ...editFormData, endMileage: e.target.value })}
                   />
                 </div>
               </div>

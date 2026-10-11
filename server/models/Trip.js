@@ -10,15 +10,20 @@ const tripSchema = new mongoose.Schema(
     // Pre-trip data (captured when driver starts shift)
     startMileage: {
       type: Number,
-      required: [true, 'Por favor ingresa el kilometraje al iniciar'],
+      required: false,
     },
     startFuelLevel: {
       type: Number, // % o litros restantes
-      required: [true, 'Por favor ingresa el nivel de nafta al iniciar'],
+      required: false,
+      default: 0,
     },
     startFuelLevelDate: {
       type: Date,
       default: Date.now,
+    },
+    isFinished: {
+      type: Boolean,
+      default: false,
     },
     // Post-trip data (captured when driver ends shift)
     endMileage: {
@@ -107,18 +112,20 @@ const tripSchema = new mongoose.Schema(
 
 // Method to compute kilometers done
 tripSchema.methods.computeKilometers = function () {
+  if (this.kilometersDone !== undefined && this.kilometersDone !== null && this.kilometersDone > 0) {
+    return this.kilometersDone;
+  }
   if (this.endMileage !== undefined && this.startMileage !== undefined) {
     this.kilometersDone = Math.max(0, Number(this.endMileage) - Number(this.startMileage));
   }
-  return this.kilometersDone;
+  return this.kilometersDone || 0;
 };
 
-// Method to compute fuel consumed liters
+// Method to compute fuel consumed liters using 10 L / 100 km rate (kms / 10)
 tripSchema.methods.computeFuelConsumed = function () {
-  const start = Number(this.startFuelLevel) || 0;
-  const end = Number(this.endFuelLevel) || 0;
-  const added = Number(this.fuelLitersAdded) || 0;
-  this.fuelConsumedLiters = Math.max(0, start - end + added);
+  const kms = Number(this.kilometersDone) || 0;
+  // Tasa de 10 litros cada 100 km: Litros = (10 * kms) / 100 = kms / 10
+  this.fuelConsumedLiters = Math.round((kms / 10) * 100) / 100;
   return this.fuelConsumedLiters;
 };
 
