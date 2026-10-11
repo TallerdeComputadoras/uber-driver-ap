@@ -31,9 +31,14 @@ const driverAuth = async (req, res, next) => {
 // @access  Private (driver)
 router.post('/pre-trip', driverAuth, async (req, res) => {
   try {
-    // Al iniciar turno ya no se ingresan kilómetros del auto
+    const { startFuelLevel } = req.body;
+    if (startFuelLevel === undefined || startFuelLevel === '') {
+      return res.status(400).json({ message: 'Por favor ingresa el nivel de combustible inicial' });
+    }
+    // Al iniciar turno ya no se ingresan kilómetros del auto, solo nivel de combustible
     const trip = new Trip({
       driver: req.user.id,
+      startFuelLevel: Number(startFuelLevel),
       date: new Date(),
       isFinished: false,
     });
@@ -49,7 +54,7 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
 // @access  Private (driver)
 router.post('/post-trip', driverAuth, async (req, res) => {
   try {
-    const { kilometersDone, moneyObtained, endMileage, endFuelLevel, fuelLitersAdded } = req.body;
+    const { kilometersDone, moneyObtained, endFuelLevel, fuelLitersAdded, endMileage } = req.body;
 
     const parsedKm = kilometersDone !== undefined && kilometersDone !== ''
       ? Number(kilometersDone)
@@ -57,6 +62,10 @@ router.post('/post-trip', driverAuth, async (req, res) => {
 
     if (parsedKm === null || isNaN(parsedKm) || parsedKm < 0 || moneyObtained === undefined || moneyObtained === '') {
       return res.status(400).json({ message: 'Por favor ingresa los kilómetros realizados según apps y el dinero recaudado' });
+    }
+
+    if (endFuelLevel === undefined || endFuelLevel === '') {
+      return res.status(400).json({ message: 'Por favor ingresa el nivel de combustible final' });
     }
 
     // Buscar turno activo no finalizado del chofer

@@ -934,6 +934,29 @@ function AdminPanel({ token: propToken }) {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="form-group">
+                  <label className="form-label">Nafta Inicial (% o Litros)</label>
+                  <input
+                    type="number"
+                    step="1"
+                    className="form-input"
+                    value={editFormData.startFuelLevel}
+                    onChange={(e) => setEditFormData({ ...editFormData, startFuelLevel: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Nafta Final (% o Litros)</label>
+                  <input
+                    type="number"
+                    step="1"
+                    className="form-input"
+                    value={editFormData.endFuelLevel}
+                    onChange={(e) => setEditFormData({ ...editFormData, endFuelLevel: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group">
                   <label className="form-label">Odómetro Inicial (km - opcional)</label>
                   <input
                     type="number"

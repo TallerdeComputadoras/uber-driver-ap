@@ -7,8 +7,12 @@ function DriverDashboard({ token: propToken }) {
   const currentUserId = localStorage.getItem('userId') || '';
   const currentUserName = localStorage.getItem('userName') || 'Conductor';
 
+  // State for pre-trip form
+  const [startFuelLevel, setStartFuelLevel] = useState('');
+
   // State for post-trip form
   const [kilometersDone, setKilometersDone] = useState('');
+  const [endFuelLevel, setEndFuelLevel] = useState('');
   const [moneyObtained, setMoneyObtained] = useState('');
   const [fuelLitersAdded, setFuelLitersAdded] = useState('');
 
@@ -101,9 +105,13 @@ function DriverDashboard({ token: propToken }) {
     fetchMyTrips();
   }, [fetchStats, fetchMyTrips]);
 
-  // Handle pre-trip: Iniciar turno sin ingresar kilómetros del auto
+  // Handle pre-trip: Iniciar turno con nivel de combustible inicial (sin kilómetros del auto)
   const handleStartTrip = async (e) => {
     e.preventDefault();
+    if (startFuelLevel === '') {
+      showNotification('error', 'Por favor ingresa el nivel de combustible inicial.');
+      return;
+    }
     setLoadingTrip(true);
     try {
       const res = await fetch('/api/driver/pre-trip', {
@@ -112,11 +120,14 @@ function DriverDashboard({ token: propToken }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          startFuelLevel: Number(startFuelLevel),
+        }),
       });
       const data = await res.json();
       if (res.ok) {
         showNotification('success', data.message || 'Turno iniciado con éxito. ¡Buen viaje!');
+        setStartFuelLevel('');
         fetchStats();
         fetchMyTrips();
       } else {
@@ -129,11 +140,11 @@ function DriverDashboard({ token: propToken }) {
     }
   };
 
-  // Handle post-trip: Finalizar turno con Kms realizados según apps de conductores
+  // Handle post-trip: Finalizar turno con Kms de apps, nivel de nafta final y dinero
   const handleEndTrip = async (e) => {
     e.preventDefault();
-    if (kilometersDone === '' || moneyObtained === '') {
-      showNotification('error', 'Por favor ingresa los kilómetros según apps y el dinero recaudado.');
+    if (kilometersDone === '' || moneyObtained === '' || endFuelLevel === '') {
+      showNotification('error', 'Por favor completa los kilómetros según apps, nivel final de nafta y dinero recaudado.');
       return;
     }
     setLoadingTrip(true);
@@ -146,6 +157,7 @@ function DriverDashboard({ token: propToken }) {
         },
         body: JSON.stringify({
           kilometersDone: Number(kilometersDone),
+          endFuelLevel: Number(endFuelLevel),
           moneyObtained: Number(moneyObtained),
           fuelLitersAdded: Number(fuelLitersAdded) || 0,
         }),
@@ -155,6 +167,7 @@ function DriverDashboard({ token: propToken }) {
         showNotification('success', data.message || 'Turno finalizado y métricas calculadas con éxito.');
         setLastClosedTrip(data.trip);
         setKilometersDone('');
+        setEndFuelLevel('');
         setMoneyObtained('');
         setFuelLitersAdded('');
         fetchStats();
@@ -330,14 +343,29 @@ function DriverDashboard({ token: propToken }) {
             <span>Iniciar Jornada (Pre-Trip)</span>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            Comienza tu turno de trabajo. No se requiere ingresar kilometraje del auto al iniciar.
+            Registra el nivel de combustible inicial antes de salir. No se ingresan kilómetros del auto.
           </p>
           <form onSubmit={handleStartTrip}>
-            <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px dashed rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '1rem', marginBottom: '1.25rem' }}>
-              <p style={{ margin: 0, fontSize: '0.85rem', color: '#6ee7b7' }}>
-                ℹ️ Los kilómetros realizados los ingresarás al finalizar el turno, tomados directamente de las <strong>aplicaciones de conductores</strong>.
+            <div className="form-group">
+              <label className="form-label">Nivel de Combustible Inicial (% o Litros)</label>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                className="form-input"
+                placeholder="Ej: 80 (%)"
+                value={startFuelLevel}
+                onChange={(e) => setStartFuelLevel(e.target.value)}
+                required
+              />
+            </div>
+
+            <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px dashed rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1.25rem' }}>
+              <p style={{ margin: 0, fontSize: '0.82rem', color: '#6ee7b7' }}>
+                ℹ️ Los kilómetros realizados se ingresan al finalizar el turno, tomados directamente de las <strong>aplicaciones de conductores</strong>.
               </p>
             </div>
+
             <button
               type="submit"
               className="btn-primary"
@@ -356,26 +384,41 @@ function DriverDashboard({ token: propToken }) {
             <span>Finalizar Jornada (Post-Trip)</span>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            Registra los kilómetros indicados por las apps de conductores para calcular consumo y retenciones.
+            Registra los kilómetros de las apps y el nivel final de combustible para calcular consumo y retenciones.
           </p>
           <form onSubmit={handleEndTrip}>
-            <div className="form-group">
-              <label className="form-label">
-                Kilómetros realizados según apps de conductores (km)
-              </label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                className="form-input"
-                placeholder="Ej: 47.3"
-                value={kilometersDone}
-                onChange={(e) => setKilometersDone(e.target.value)}
-                required
-              />
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                Se calcularán litros consumidos según la tasa de 10 L cada 100 km (kms ÷ 10).
-              </span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div className="form-group">
+                <label className="form-label">
+                  Kms según apps (km)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  className="form-input"
+                  placeholder="Ej: 47.3"
+                  value={kilometersDone}
+                  onChange={(e) => setKilometersDone(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  Nivel Final Nafta (%)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  className="form-input"
+                  placeholder="Ej: 45 (%)"
+                  value={endFuelLevel}
+                  onChange={(e) => setEndFuelLevel(e.target.value)}
+                  required
+                />
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
@@ -394,7 +437,7 @@ function DriverDashboard({ token: propToken }) {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Nafta Cargada (Litros - opcional)</label>
+                <label className="form-label">Nafta Cargada (Litros)</label>
                 <input
                   type="number"
                   step="0.1"
