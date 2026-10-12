@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 
-function FuelCalculator({ isAdmin = false, token = '', onPriceUpdated }) {
+function FuelCalculator({ isAdmin = false, token = '', onPriceUpdated, defaultOpen = false }) {
   const [fuelPrice, setFuelPrice] = useState('');
   const [kilometers, setKilometers] = useState('');
   const [savingPrice, setSavingPrice] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState('');
+  // Herramienta auxiliar: colapsable y opcional. No forma parte del flujo de jornada.
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   // Fetch current official fuel price on mount
   useEffect(() => {
@@ -68,14 +70,23 @@ function FuelCalculator({ isAdmin = false, token = '', onPriceUpdated }) {
         boxShadow: '0 10px 25px -5px rgba(14, 165, 233, 0.15)',
       }}
     >
-      <div
+      <button
+        type="button"
+        onClick={() => setIsOpen((v) => !v)}
+        aria-expanded={isOpen}
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: '0.75rem',
-          marginBottom: '1rem',
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          textAlign: 'left',
+          marginBottom: isOpen ? '1rem' : 0,
         }}
       >
         <div className="card-title" style={{ margin: 0, color: '#38bdf8' }}>
@@ -84,6 +95,9 @@ function FuelCalculator({ isAdmin = false, token = '', onPriceUpdated }) {
         </div>
         <span
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.5rem',
             fontSize: '0.75rem',
             background: 'rgba(56, 189, 248, 0.15)',
             color: '#38bdf8',
@@ -93,9 +107,19 @@ function FuelCalculator({ isAdmin = false, token = '', onPriceUpdated }) {
             fontWeight: 600,
           }}
         >
-          Tasa fija: 10 L cada 100 km (kms ÷ 10)
+          <span>Opcional — no afecta la jornada</span>
+          <span aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
         </span>
-      </div>
+      </button>
+
+      {!isOpen && (
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '0.6rem 0 0' }}>
+          Herramienta libre para calcular litros y costo de nafta cuando la necesites. Tocá para abrir.
+        </p>
+      )}
+
+      {isOpen && (
+        <div style={{ marginTop: '0.25rem' }}>
 
       <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
         Calcula al instante los litros de nafta consumidos y el costo total en combustible.
@@ -227,7 +251,9 @@ function FuelCalculator({ isAdmin = false, token = '', onPriceUpdated }) {
               : 'Litros consumidos × Precio x 1L'}
           </div>
         </div>
+        </div>
       </div>
+      )}
     </div>
   );
 }

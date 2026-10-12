@@ -557,8 +557,8 @@ function DriverDashboard({ token: propToken }) {
         </div>
       </div>
 
-      {/* Calculadora de Consumo de Nafta — siempre disponible */}
-      <FuelCalculator token={token} />
+      {/* Calculadora de Consumo de Nafta — herramienta libre y opcional (colapsada por defecto) */}
+      <FuelCalculator token={token} defaultOpen={false} />
 
       {/* Filter and Period Controls */}
       <div className="filter-bar">

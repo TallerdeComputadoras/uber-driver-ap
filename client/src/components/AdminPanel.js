@@ -530,6 +530,7 @@ function AdminPanel({ token: propToken }) {
           {/* Calculadora interactiva de consumo de nafta para el administrador */}
           <FuelCalculator
             isAdmin={true}
+            defaultOpen={true}
             token={token}
             onPriceUpdated={(newPrice) => {
               setCurrentFuelPrice(newPrice);
