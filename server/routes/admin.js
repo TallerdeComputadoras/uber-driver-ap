@@ -476,4 +476,20 @@ router.post('/monthly-rendition', authMiddleware, adminAuth, async (req, res) =>
   }
 });
 
+// @desc    Eliminar definitivamente una jornada (solo admin)
+// @route   DELETE /api/admin/trip/:id
+// @access  Private (admin)
+router.delete('/trip/:id', authMiddleware, adminAuth, async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id);
+    if (!trip) {
+      return res.status(404).json({ message: 'Jornada no encontrada' });
+    }
+    await Trip.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Jornada eliminada definitivamente.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 module.exports = router;

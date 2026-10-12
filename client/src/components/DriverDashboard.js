@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import InfoBadge from './InfoBadge';
 import FuelCalculator from './FuelCalculator';
 
@@ -21,9 +21,17 @@ function DriverDashboard({ token: propToken }) {
   const [loadingTrip, setLoadingTrip] = useState(false);
   const [lastClosedTrip, setLastClosedTrip] = useState(null);
 
+  // Active open shift
+  const [activeShift, setActiveShift] = useState(null);
+
   // Shifts history
   const [myTrips, setMyTrips] = useState([]);
   const [loadingTripsList, setLoadingTripsList] = useState(false);
+
+  // Edit modal state
+  const [editingTrip, setEditingTrip] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editLoading, setEditLoading] = useState(false);
 
   // State for stats
   const [period, setPeriod] = useState('month');
@@ -55,10 +63,15 @@ function DriverDashboard({ token: propToken }) {
       });
       if (res.ok) {
         const data = await res.json();
-        setMyTrips(data.trips || []);
-        // Si hay un turno recién finalizado sin transferir, guardarlo como último turno
-        if (data.trips && data.trips.length > 0 && !lastClosedTrip) {
-          setLastClosedTrip(data.trips[0]);
+        const trips = data.trips || [];
+        setMyTrips(trips);
+        // Detectar si hay una jornada abierta
+        const open = trips.find((t) => !t.isFinished && !t.isCancelled);
+        setActiveShift(open || null);
+        // Si hay un turno reciÃ©n finalizado sin transferir, guardarlo como Ãºltimo turno
+        const firstFinished = trips.find((t) => t.isFinished && !t.isCancelled);
+        if (firstFinished && !lastClosedTrip) {
+          setLastClosedTrip(firstFinished);
         }
       }
     } catch (err) {
@@ -105,28 +118,25 @@ function DriverDashboard({ token: propToken }) {
     fetchMyTrips();
   }, [fetchStats, fetchMyTrips]);
 
-  // Handle pre-trip: Iniciar turno con nivel de combustible inicial (sin kilómetros del auto)
+  // Handle pre-trip: Iniciar turno
   const handleStartTrip = async (e) => {
     e.preventDefault();
-    if (startFuelLevel === '') {
-      showNotification('error', 'Por favor ingresa el nivel de combustible inicial.');
-      return;
-    }
     setLoadingTrip(true);
     try {
+      const body = {};
+      if (startFuelLevel !== '') body.startFuelLevel = Number(startFuelLevel);
+
       const res = await fetch('/api/driver/pre-trip', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          startFuelLevel: Number(startFuelLevel),
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification('success', data.message || 'Turno iniciado con éxito. ¡Buen viaje!');
+        showNotification('success', data.message || 'Turno iniciado con Ã©xito. Â¡Buen viaje!');
         setStartFuelLevel('');
         fetchStats();
         fetchMyTrips();
@@ -140,31 +150,31 @@ function DriverDashboard({ token: propToken }) {
     }
   };
 
-  // Handle post-trip: Finalizar turno con Kms de apps, nivel de nafta final y dinero
+  // Handle post-trip: Finalizar turno
   const handleEndTrip = async (e) => {
     e.preventDefault();
-    if (kilometersDone === '' || moneyObtained === '' || endFuelLevel === '') {
-      showNotification('error', 'Por favor completa los kilómetros según apps, nivel final de nafta y dinero recaudado.');
+    if (moneyObtained === '') {
+      showNotification('error', 'Por favor ingresa el dinero recaudado.');
       return;
     }
     setLoadingTrip(true);
     try {
+      const body = { moneyObtained: Number(moneyObtained) };
+      if (kilometersDone !== '') body.kilometersDone = Number(kilometersDone);
+      if (endFuelLevel !== '') body.endFuelLevel = Number(endFuelLevel);
+      if (fuelLitersAdded !== '') body.fuelLitersAdded = Number(fuelLitersAdded);
+
       const res = await fetch('/api/driver/post-trip', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          kilometersDone: Number(kilometersDone),
-          endFuelLevel: Number(endFuelLevel),
-          moneyObtained: Number(moneyObtained),
-          fuelLitersAdded: Number(fuelLitersAdded) || 0,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification('success', data.message || 'Turno finalizado y métricas calculadas con éxito.');
+        showNotification('success', data.message || 'Turno finalizado con Ã©xito.');
         setLastClosedTrip(data.trip);
         setKilometersDone('');
         setEndFuelLevel('');
@@ -176,7 +186,7 @@ function DriverDashboard({ token: propToken }) {
         showNotification('error', data.message || 'Error al finalizar el turno.');
       }
     } catch (err) {
-      showNotification('error', 'Error de conexión con el servidor.');
+      showNotification('error', 'Error de conexiÃ³n con el servidor.');
     } finally {
       setLoadingTrip(false);
     }
@@ -194,7 +204,7 @@ function DriverDashboard({ token: propToken }) {
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification('success', '¡Transferencia informada! Estado: Falta aprobación del Administrador.');
+        showNotification('success', 'Â¡Transferencia informada! Estado: Falta aprobaciÃ³n del Administrador.');
         if (lastClosedTrip && lastClosedTrip._id === tripId) {
           setLastClosedTrip(data.trip);
         }
@@ -204,7 +214,77 @@ function DriverDashboard({ token: propToken }) {
         showNotification('error', data.message || 'Error al informar transferencia.');
       }
     } catch (err) {
-      showNotification('error', 'Error de conexión.');
+      showNotification('error', 'Error de conexiÃ³n.');
+    }
+  };
+
+  // Eliminar una jornada
+  const handleDeleteTrip = async (tripId) => {
+    if (!window.confirm('Â¿EstÃ¡s seguro de que querÃ©s eliminar esta jornada? Esta acciÃ³n no se puede deshacer.')) return;
+    try {
+      const res = await fetch(`/api/driver/trip/${tripId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification('success', data.message || 'Jornada eliminada.');
+        if (lastClosedTrip && lastClosedTrip._id === tripId) setLastClosedTrip(null);
+        fetchMyTrips();
+        fetchStats();
+      } else {
+        showNotification('error', data.message || 'Error al eliminar.');
+      }
+    } catch (err) {
+      showNotification('error', 'Error de conexiÃ³n.');
+    }
+  };
+
+  // Abrir modal de ediciÃ³n
+  const handleOpenEdit = (trip) => {
+    setEditingTrip(trip);
+    setEditForm({
+      kilometersDone: trip.kilometersDone ?? '',
+      moneyObtained: trip.moneyObtained ?? '',
+      startFuelLevel: trip.startFuelLevel ?? '',
+      endFuelLevel: trip.endFuelLevel ?? '',
+      fuelLitersAdded: trip.fuelLitersAdded ?? '',
+    });
+  };
+
+  // Guardar ediciÃ³n
+  const handleSaveEdit = async () => {
+    if (!editingTrip) return;
+    setEditLoading(true);
+    try {
+      const body = {};
+      if (editForm.kilometersDone !== '') body.kilometersDone = Number(editForm.kilometersDone);
+      if (editForm.moneyObtained !== '') body.moneyObtained = Number(editForm.moneyObtained);
+      if (editForm.startFuelLevel !== '') body.startFuelLevel = Number(editForm.startFuelLevel);
+      if (editForm.endFuelLevel !== '') body.endFuelLevel = Number(editForm.endFuelLevel);
+      if (editForm.fuelLitersAdded !== '') body.fuelLitersAdded = Number(editForm.fuelLitersAdded);
+
+      const res = await fetch(`/api/driver/trip/${editingTrip._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification('success', data.message || 'Jornada actualizada.');
+        setEditingTrip(null);
+        fetchMyTrips();
+        fetchStats();
+      } else {
+        showNotification('error', data.message || 'Error al actualizar.');
+      }
+    } catch (err) {
+      showNotification('error', 'Error de conexiÃ³n.');
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -212,7 +292,7 @@ function DriverDashboard({ token: propToken }) {
     day: 'Hoy',
     week: 'Esta Semana',
     month: 'Este Mes',
-    year: 'Este Año',
+    year: 'Este AÃ±o',
   };
 
   return (
@@ -229,33 +309,55 @@ function DriverDashboard({ token: propToken }) {
         </div>
       </div>
 
+      {/* Active shift banner */}
+      {activeShift && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05))',
+          border: '1px solid rgba(16, 185, 129, 0.4)',
+          borderRadius: '12px',
+          padding: '0.85rem 1.25rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+        }}>
+          <span style={{ fontSize: '1.3rem' }}>ðŸŸ¢</span>
+          <div>
+            <strong style={{ color: '#34d399', fontSize: '0.95rem' }}>Jornada en curso</strong>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginLeft: '0.5rem' }}>
+              Iniciada el {new Date(activeShift.date || activeShift.createdAt).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        </div>
+      )}
+
       {message.text && (
         <div className={`alert ${message.type === 'error' ? 'alert-error' : 'alert-success'}`}>
-          <span>{message.type === 'error' ? '⚠️' : '✅'}</span>
+          <span>{message.type === 'error' ? 'âš ï¸' : 'âœ…'}</span>
           <span>{message.text}</span>
         </div>
       )}
 
-      {/* Tarjeta de Retención del Último Turno Cerrado */}
-      {lastClosedTrip && (lastClosedTrip.kilometersDone || lastClosedTrip.endMileage || lastClosedTrip.totalTransferAmount > 0) && (
+      {/* Tarjeta del Ãšltimo Turno Cerrado */}
+      {lastClosedTrip && lastClosedTrip.isFinished && (lastClosedTrip.totalTransferAmount > 0 || lastClosedTrip.moneyObtained > 0) && (
         <div className="card" style={{ marginBottom: '2rem', border: '1px solid rgba(245, 158, 11, 0.4)', background: 'linear-gradient(145deg, #111827 0%, #1e1b4b 100%)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
             <div className="card-title" style={{ margin: 0, color: '#facc15' }}>
-              <span>💰</span>
-              <span>Liquidación y Retenciones del Turno ({new Date(lastClosedTrip.date).toLocaleDateString('es-AR')})</span>
+              <span>ðŸ’°</span>
+              <span>Ãšltimo Turno Cerrado ({new Date(lastClosedTrip.date).toLocaleDateString('es-AR')})</span>
             </div>
             <div>
               {lastClosedTrip.transferStatus === 'approved' ? (
                 <span className="badge badge-success" style={{ fontSize: '0.85rem' }}>
-                  ✅ Transferencia Aprobada por Administrador
+                  âœ… Transferencia Aprobada por Administrador
                 </span>
               ) : lastClosedTrip.transferStatus === 'paid_pending_approval' ? (
                 <span className="badge badge-warning" style={{ fontSize: '0.85rem' }}>
-                  ⏳ Falta aprobación
+                  â³ Falta aprobaciÃ³n
                 </span>
               ) : (
                 <span className="badge badge-pending" style={{ fontSize: '0.85rem' }}>
-                  ⚠️ Pendiente de transferencia
+                  âš ï¸ Pendiente de transferencia
                 </span>
               )}
             </div>
@@ -263,38 +365,28 @@ function DriverDashboard({ token: propToken }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.85rem', marginBottom: '1.25rem' }}>
             <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Distancia Apps</span>
-              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#f8fafc', marginTop: '0.2rem' }}>
-                {(lastClosedTrip.kilometersDone || 0).toFixed(1)} <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>km</span>
-              </div>
-            </div>
-
-            <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Combustible</span>
-              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fb923c', marginTop: '0.2rem' }}>
-                ${(lastClosedTrip.fuelCost || 0).toFixed(2)}
-              </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                {(lastClosedTrip.fuelConsumedLiters || 0).toFixed(2)} L (10L/100km)
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Dinero Recaudado</span>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#38bdf8', marginTop: '0.2rem' }}>
+                ${(lastClosedTrip.moneyObtained || 0).toFixed(2)}
               </div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Ganancia Neta</span>
-              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#38bdf8', marginTop: '0.2rem' }}>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#34d399', marginTop: '0.2rem' }}>
                 ${(lastClosedTrip.netProfit || 0).toFixed(2)}
               </div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <span style={{ fontSize: '0.72rem', color: '#facc15', textTransform: 'uppercase' }}>🔧 Desgaste (10%)</span>
+              <span style={{ fontSize: '0.72rem', color: '#facc15', textTransform: 'uppercase' }}>ðŸ”§ Desgaste (10%)</span>
               <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#facc15', marginTop: '0.2rem' }}>
                 ${(lastClosedTrip.carWearAmount || 0).toFixed(2)}
               </div>
             </div>
 
             <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <span style={{ fontSize: '0.72rem', color: '#fb923c', textTransform: 'uppercase' }}>🚘 Cambio Auto (10%)</span>
+              <span style={{ fontSize: '0.72rem', color: '#fb923c', textTransform: 'uppercase' }}>ðŸš˜ Cambio Auto (10%)</span>
               <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#fb923c', marginTop: '0.2rem' }}>
                 ${(lastClosedTrip.carReplacementAmount || 0).toFixed(2)}
               </div>
@@ -308,15 +400,14 @@ function DriverDashboard({ token: propToken }) {
             </div>
           </div>
 
-          {/* Botón para marcar transferencia como realizada */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem' }}>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               {lastClosedTrip.transferStatus === 'approved' ? (
-                <span style={{ color: '#34d399' }}>El administrador ha confirmado la recepción de los fondos de este turno.</span>
+                <span style={{ color: '#34d399' }}>El administrador ha confirmado la recepciÃ³n de los fondos de este turno.</span>
               ) : lastClosedTrip.transferStatus === 'paid_pending_approval' ? (
-                <span style={{ color: '#facc15' }}>Has informado la transferencia. Notificación enviada al administrador (Falta aprobación).</span>
+                <span style={{ color: '#facc15' }}>Has informado la transferencia. NotificaciÃ³n enviada al administrador (Falta aprobaciÃ³n).</span>
               ) : (
-                <span>Una vez realizada la transferencia bancaria por los <strong>${(lastClosedTrip.totalTransferAmount || 0).toFixed(2)}</strong>, presiona el botón para notificar al administrador.</span>
+                <span>Una vez realizada la transferencia bancaria por los <strong>${(lastClosedTrip.totalTransferAmount || 0).toFixed(2)}</strong>, presiona el botÃ³n para notificar al administrador.</span>
               )}
             </div>
 
@@ -327,7 +418,7 @@ function DriverDashboard({ token: propToken }) {
                 onClick={() => handleReportTransfer(lastClosedTrip._id)}
                 style={{ width: 'auto', padding: '0.65rem 1.25rem', background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
               >
-                ✔ Marcar transferencia como realizada
+                âœ” Marcar transferencia como realizada
               </button>
             )}
           </div>
@@ -339,91 +430,67 @@ function DriverDashboard({ token: propToken }) {
         {/* Pre-trip Card */}
         <div className="card">
           <div className="card-title">
-            <span style={{ fontSize: '1.4rem' }}>🟢</span>
+            <span style={{ fontSize: '1.4rem' }}>ðŸŸ¢</span>
             <span>Iniciar Jornada (Pre-Trip)</span>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            Registra el nivel de combustible inicial antes de salir. No se ingresan kilómetros del auto.
+            Registra el inicio de tu jornada. El nivel de combustible es opcional.
           </p>
-          <form onSubmit={handleStartTrip}>
-            <div className="form-group">
-              <label className="form-label">Nivel de Combustible Inicial (% o Litros)</label>
-              <input
-                type="number"
-                step="1"
-                min="0"
-                className="form-input"
-                placeholder="Ej: 80 (%)"
-                value={startFuelLevel}
-                onChange={(e) => setStartFuelLevel(e.target.value)}
-                required
-              />
-            </div>
 
-            <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px dashed rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1.25rem' }}>
-              <p style={{ margin: 0, fontSize: '0.82rem', color: '#6ee7b7' }}>
-                ℹ️ Los kilómetros realizados se ingresan al finalizar el turno, tomados directamente de las <strong>aplicaciones de conductores</strong>.
+          {activeShift ? (
+            <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: '10px', padding: '1rem', textAlign: 'center' }}>
+              <p style={{ margin: 0, fontSize: '0.9rem', color: '#fbbf24' }}>
+                ðŸŸ¡ Ya tenÃ©s una jornada abierta. DebÃ©s cerrarla antes de iniciar una nueva.
               </p>
             </div>
-
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={loadingTrip}
-              style={{ marginTop: '0.5rem', width: '100%', fontSize: '1.05rem', padding: '0.85rem' }}
-            >
-              {loadingTrip ? 'Iniciando...' : '🟢 Iniciar Turno'}
-            </button>
-          </form>
-        </div>
-
-        {/* Post-trip Card */}
-        <div className="card">
-          <div className="card-title">
-            <span style={{ fontSize: '1.4rem' }}>🏁</span>
-            <span>Finalizar Jornada (Post-Trip)</span>
-          </div>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            Registra los kilómetros de las apps y el nivel final de combustible para calcular consumo y retenciones.
-          </p>
-          <form onSubmit={handleEndTrip}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          ) : (
+            <form onSubmit={handleStartTrip}>
               <div className="form-group">
-                <label className="form-label">
-                  Kms según apps (km)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  className="form-input"
-                  placeholder="Ej: 47.3"
-                  value={kilometersDone}
-                  onChange={(e) => setKilometersDone(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">
-                  Nivel Final Nafta (%)
-                </label>
+                <label className="form-label">Nivel de Combustible Inicial (% o Litros) â€” Opcional</label>
                 <input
                   type="number"
                   step="1"
                   min="0"
                   className="form-input"
-                  placeholder="Ej: 45 (%)"
-                  value={endFuelLevel}
-                  onChange={(e) => setEndFuelLevel(e.target.value)}
-                  required
+                  placeholder="Ej: 80 (%) â€” Opcional"
+                  value={startFuelLevel}
+                  onChange={(e) => setStartFuelLevel(e.target.value)}
                 />
               </div>
-            </div>
 
+              <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px dashed rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1.25rem' }}>
+                <p style={{ margin: 0, fontSize: '0.82rem', color: '#6ee7b7' }}>
+                  â„¹ï¸ Los kilÃ³metros realizados se ingresan al finalizar el turno, tomados directamente de las <strong>aplicaciones de conductores</strong>.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={loadingTrip}
+                style={{ marginTop: '0.5rem', width: '100%', fontSize: '1.05rem', padding: '0.85rem' }}
+              >
+                {loadingTrip ? 'Iniciando...' : 'ðŸŸ¢ Iniciar Turno'}
+              </button>
+            </form>
+          )}
+        </div>
+
+        {/* Post-trip Card */}
+        <div className="card">
+          <div className="card-title">
+            <span style={{ fontSize: '1.4rem' }}>ðŸ</span>
+            <span>Finalizar Jornada (Post-Trip)</span>
+          </div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+            IngresÃ¡ el dinero recaudado para cerrar el turno. Kms y combustible son opcionales.
+          </p>
+          <form onSubmit={handleEndTrip}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div className="form-group">
-                <label className="form-label">Dinero Recaudado ($)</label>
+                <label className="form-label">
+                  Dinero Recaudado ($) <span style={{ color: '#f87171', fontSize: '0.75rem' }}>*</span>
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -437,7 +504,35 @@ function DriverDashboard({ token: propToken }) {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Nafta Cargada (Litros)</label>
+                <label className="form-label">Kms segÃºn apps â€” Opcional</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  className="form-input"
+                  placeholder="Ej: 47.3"
+                  value={kilometersDone}
+                  onChange={(e) => setKilometersDone(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div className="form-group">
+                <label className="form-label">Nivel Final Nafta (%) â€” Opcional</label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  className="form-input"
+                  placeholder="Ej: 45 (%)"
+                  value={endFuelLevel}
+                  onChange={(e) => setEndFuelLevel(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Nafta Cargada (Litros) â€” Opcional</label>
                 <input
                   type="number"
                   step="0.1"
@@ -456,34 +551,34 @@ function DriverDashboard({ token: propToken }) {
               disabled={loadingTrip}
               style={{ marginTop: '0.5rem', width: '100%', fontSize: '1.05rem', padding: '0.85rem' }}
             >
-              {loadingTrip ? 'Calculando...' : '🏁 Cerrar Turno y Calcular Retenciones'}
+              {loadingTrip ? 'Cerrando...' : 'ðŸ Cerrar Turno'}
             </button>
           </form>
         </div>
       </div>
 
-      {/* Área interactiva: Calculadora de Consumo de Nafta */}
+      {/* Calculadora de Consumo de Nafta â€” siempre disponible */}
       <FuelCalculator token={token} />
 
       {/* Filter and Period Controls */}
       <div className="filter-bar">
         <div className="filter-item">
-          <span className="filter-label">Período de Análisis:</span>
+          <span className="filter-label">PerÃ­odo de AnÃ¡lisis:</span>
           <select
             className="form-select"
             style={{ width: 'auto', padding: '0.5rem 1rem' }}
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
           >
-            <option value="day">Día actual</option>
+            <option value="day">DÃ­a actual</option>
             <option value="week">Esta semana</option>
             <option value="month">Este mes</option>
-            <option value="year">Este año</option>
+            <option value="year">Este aÃ±o</option>
           </select>
         </div>
       </div>
 
-      {/* KPI Stats Cards */}
+      {/* KPI Stats Cards â€” sin Ingreso Bruto */}
       <div className="stats-cards-grid">
         <div className="stat-card">
           <div className="stat-card-label">Turnos / Viajes</div>
@@ -492,17 +587,9 @@ function DriverDashboard({ token: propToken }) {
         </div>
 
         <div className="stat-card">
-          <div className="stat-card-label">Kilómetros Totales</div>
+          <div className="stat-card-label">KilÃ³metros Totales</div>
           <div className="stat-card-value">{(stats.totalKm || 0).toFixed(1)} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>km</span></div>
           <div className="stat-card-sub">Distancia recorrida</div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-card-label">Ingreso Bruto</div>
-          <div className="stat-card-value" style={{ color: '#38bdf8' }}>
-            ${(stats.totalMoney || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <div className="stat-card-sub">Dinero obtenido</div>
         </div>
 
         <div className="stat-card">
@@ -510,7 +597,7 @@ function DriverDashboard({ token: propToken }) {
           <div className="stat-card-value" style={{ color: '#34d399' }}>
             ${(stats.netProfit || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <div className="stat-card-sub">Bruto - Nafta</div>
+          <div className="stat-card-sub">Recaudado - Nafta</div>
         </div>
 
         <div className="stat-card" style={{ background: 'linear-gradient(145deg, #111827 0%, #312e81 100%)' }}>
@@ -522,43 +609,44 @@ function DriverDashboard({ token: propToken }) {
         </div>
       </div>
 
-      {/* Historial de Turnos y Estado de Transferencias */}
+      {/* Historial de Jornadas */}
       <div className="card" style={{ marginTop: '2rem' }}>
         <div className="card-title">
-          <span>📋</span>
-          <span>Historial de Turnos y Transferencias</span>
+          <span>ðŸ“‹</span>
+          <span>Historial de Jornadas y Transferencias</span>
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-          Revisa tus turnos, los importes a transferir y las modificaciones autorizadas.
+          RevisÃ¡ tus jornadas, los importes a transferir y realizÃ¡ modificaciones antes de que sean aprobadas.
         </p>
 
         {loadingTripsList ? (
-          <p style={{ color: 'var(--text-muted)', padding: '1rem' }}>Cargando turnos...</p>
+          <p style={{ color: 'var(--text-muted)', padding: '1rem' }}>Cargando jornadas...</p>
         ) : myTrips.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', padding: '1rem' }}>No tienes turnos registrados aún.</p>
+          <p style={{ color: 'var(--text-muted)', padding: '1rem' }}>No tenÃ©s jornadas registradas aÃºn.</p>
         ) : (
           <div className="table-container">
             <table className="styled-table">
               <thead>
                 <tr>
                   <th>Fecha</th>
+                  <th>Estado</th>
                   <th>KM Apps</th>
-                  <th>Combustible</th>
                   <th>Recaudado</th>
                   <th>Ganancia Neta</th>
                   <th>Desgaste (10%)</th>
                   <th>Cambio Auto (10%)</th>
                   <th>Total Transferir</th>
-                  <th>Estado Transferencia</th>
-                  <th>Acción</th>
+                  <th>Transferencia</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {myTrips.map((t) => {
-                  const isWearEdited = t.editedFields && (t.editedFields.includes('carWearAmount') || t.editedFields.includes('moneyObtained'));
-                  const isReplacementEdited = t.editedFields && (t.editedFields.includes('carReplacementAmount') || t.editedFields.includes('moneyObtained'));
                   const isKmEdited = t.editedFields && (t.editedFields.includes('kilometersDone') || t.editedFields.includes('startMileage') || t.editedFields.includes('endMileage'));
                   const isMoneyEdited = t.editedFields && t.editedFields.includes('moneyObtained');
+                  const isWearEdited = t.editedFields && (t.editedFields.includes('carWearAmount') || t.editedFields.includes('moneyObtained'));
+                  const isReplacementEdited = t.editedFields && (t.editedFields.includes('carReplacementAmount') || t.editedFields.includes('moneyObtained'));
+                  const canModify = t.transferStatus !== 'approved' && !t.isCancelled;
 
                   return (
                     <tr key={t._id} style={{ opacity: t.isCancelled ? 0.5 : 1 }}>
@@ -567,21 +655,20 @@ function DriverDashboard({ token: propToken }) {
                         {t.isCancelled && <span className="badge badge-danger" style={{ marginLeft: '6px' }}>Anulado</span>}
                       </td>
                       <td>
-                        <div className="info-field-wrapper">
-                          <span>
-                            {t.kilometersDone !== undefined && t.kilometersDone !== null
-                              ? `${t.kilometersDone} km`
-                              : (t.startMileage ? `${t.startMileage} → ${t.endMileage || 'En curso'}` : 'En curso')}
-                          </span>
-                          {isKmEdited && <InfoBadge text="Editado por administrador" />}
-                        </div>
+                        {!t.isFinished && !t.isCancelled ? (
+                          <span className="badge badge-success" style={{ fontSize: '0.75rem' }}>ðŸŸ¢ Abierta</span>
+                        ) : (
+                          <span className="badge badge-pending" style={{ fontSize: '0.75rem' }}>ðŸ Cerrada</span>
+                        )}
                       </td>
                       <td>
-                        <div style={{ fontSize: '0.85rem' }}>
-                          <span style={{ color: '#fb923c', fontWeight: 600 }}>${(t.fuelCost || 0).toFixed(2)}</span>
-                          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', display: 'block' }}>
-                            {(t.fuelConsumedLiters || 0).toFixed(2)} L
+                        <div className="info-field-wrapper">
+                          <span>
+                            {t.kilometersDone !== undefined && t.kilometersDone !== null && t.kilometersDone > 0
+                              ? `${t.kilometersDone} km`
+                              : (t.startMileage ? `${t.startMileage} â†’ ${t.endMileage || 'En curso'}` : 'â€”')}
                           </span>
+                          {isKmEdited && <InfoBadge text="Editado por administrador" />}
                         </div>
                       </td>
                       <td>
@@ -590,7 +677,7 @@ function DriverDashboard({ token: propToken }) {
                           {isMoneyEdited && <InfoBadge text="Editado por administrador" />}
                         </div>
                       </td>
-                      <td style={{ color: '#38bdf8', fontWeight: 600 }}>
+                      <td style={{ color: '#34d399', fontWeight: 600 }}>
                         ${(t.netProfit || 0).toFixed(2)}
                       </td>
                       <td>
@@ -612,28 +699,56 @@ function DriverDashboard({ token: propToken }) {
                         {t.transferStatus === 'approved' ? (
                           <span className="badge badge-success">Aprobada</span>
                         ) : t.transferStatus === 'paid_pending_approval' ? (
-                          <span className="badge badge-warning">Falta aprobación</span>
+                          <span className="badge badge-warning">Falta aprobaciÃ³n</span>
                         ) : (
                           <span className="badge badge-pending">Pendiente</span>
                         )}
                       </td>
                       <td>
-                        {t.transferStatus === 'pending' && (t.kilometersDone || t.endMileage || t.totalTransferAmount > 0) && !t.isCancelled && (
-                          <button
-                            type="button"
-                            className="btn-primary"
-                            onClick={() => handleReportTransfer(t._id)}
-                            style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem', width: 'auto' }}
-                          >
-                            Tildar Transferido
-                          </button>
-                        )}
-                        {t.transferStatus === 'paid_pending_approval' && (
-                          <span style={{ fontSize: '0.8rem', color: '#facc15' }}>En revisión</span>
-                        )}
-                        {t.transferStatus === 'approved' && (
-                          <span style={{ fontSize: '0.8rem', color: '#34d399' }}>✓ Confirmado</span>
-                        )}
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          {t.transferStatus === 'pending' && t.isFinished && !t.isCancelled && (t.moneyObtained > 0 || t.totalTransferAmount > 0) && (
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() => handleReportTransfer(t._id)}
+                              style={{ padding: '0.3rem 0.55rem', fontSize: '0.72rem', width: 'auto' }}
+                            >
+                              Tildar Transferido
+                            </button>
+                          )}
+                          {t.transferStatus === 'paid_pending_approval' && (
+                            <span style={{ fontSize: '0.8rem', color: '#facc15' }}>En revisiÃ³n</span>
+                          )}
+                          {t.transferStatus === 'approved' && (
+                            <span style={{ fontSize: '0.8rem', color: '#34d399' }}>âœ“ Confirmado</span>
+                          )}
+                          {canModify && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(t)}
+                              style={{
+                                padding: '0.3rem 0.55rem', fontSize: '0.72rem', width: 'auto',
+                                background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.4)',
+                                color: '#38bdf8', borderRadius: '6px', cursor: 'pointer',
+                              }}
+                            >
+                              âœï¸ Editar
+                            </button>
+                          )}
+                          {canModify && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTrip(t._id)}
+                              style={{
+                                padding: '0.3rem 0.55rem', fontSize: '0.72rem', width: 'auto',
+                                background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)',
+                                color: '#f87171', borderRadius: '6px', cursor: 'pointer',
+                              }}
+                            >
+                              ðŸ—‘ Eliminar
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -643,6 +758,83 @@ function DriverDashboard({ token: propToken }) {
           </div>
         )}
       </div>
+
+      {/* Modal de EdiciÃ³n */}
+      {editingTrip && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+        }}>
+          <div style={{
+            background: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px',
+            padding: '2rem', width: '100%', maxWidth: '480px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
+          }}>
+            <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.15rem', fontWeight: 700 }}>
+              âœï¸ Editar Jornada â€” {new Date(editingTrip.date || editingTrip.createdAt).toLocaleDateString('es-AR')}
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div className="form-group">
+                <label className="form-label">Dinero Recaudado ($)</label>
+                <input type="number" step="0.01" min="0" className="form-input"
+                  value={editForm.moneyObtained}
+                  onChange={(e) => setEditForm({ ...editForm, moneyObtained: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Kms segÃºn apps</label>
+                <input type="number" step="0.1" min="0" className="form-input"
+                  value={editForm.kilometersDone}
+                  onChange={(e) => setEditForm({ ...editForm, kilometersDone: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Nafta Inicial (%)</label>
+                <input type="number" step="1" min="0" className="form-input"
+                  value={editForm.startFuelLevel}
+                  onChange={(e) => setEditForm({ ...editForm, startFuelLevel: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Nafta Final (%)</label>
+                <input type="number" step="1" min="0" className="form-input"
+                  value={editForm.endFuelLevel}
+                  onChange={(e) => setEditForm({ ...editForm, endFuelLevel: e.target.value })}
+                />
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label">Nafta Cargada (Litros)</label>
+                <input type="number" step="0.1" min="0" className="form-input"
+                  value={editForm.fuelLitersAdded}
+                  onChange={(e) => setEditForm({ ...editForm, fuelLitersAdded: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleSaveEdit}
+                disabled={editLoading}
+                style={{ flex: 1 }}
+              >
+                {editLoading ? 'Guardando...' : 'ðŸ’¾ Guardar cambios'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingTrip(null)}
+                style={{
+                  flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)',
+                  background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

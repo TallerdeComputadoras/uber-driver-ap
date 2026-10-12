@@ -353,6 +353,27 @@ function AdminPanel({ token: propToken }) {
     }
   };
 
+  // Eliminar definitivamente una jornada (solo admin)
+  const handleDeleteTrip = async (t) => {
+    if (!window.confirm(`⚠️ ¿Eliminar DEFINITIVAMENTE esta jornada de "${t.driver?.name || 'conductor'}"? Esta acción NO se puede deshacer.`)) return;
+    try {
+      const res = await fetch(`/api/admin/trip/${t._id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert('success', 'Jornada eliminada definitivamente.');
+        fetchTrips();
+        fetchDriversStats();
+      } else {
+        showAlert('error', data.message || 'Error al eliminar jornada.');
+      }
+    } catch (err) {
+      showAlert('error', 'Error de conexión.');
+    }
+  };
+
   // Marcar rendición mensual como abonada
   const handleMarkRendition = async (e) => {
     e.preventDefault();
@@ -644,6 +665,20 @@ function AdminPanel({ token: propToken }) {
                               }}
                             >
                               {t.isCancelled ? 'Reactivar' : 'Anular'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => handleDeleteTrip(t)}
+                              title="Eliminar definitivamente esta jornada"
+                              style={{
+                                padding: '0.35rem 0.65rem',
+                                fontSize: '0.75rem',
+                                color: '#ef4444',
+                                borderColor: '#ef4444',
+                              }}
+                            >
+                              🗑 Eliminar
                             </button>
                           </div>
                         </td>

@@ -31,14 +31,17 @@ const driverAuth = async (req, res, next) => {
 // @access  Private (driver)
 router.post('/pre-trip', driverAuth, async (req, res) => {
   try {
-    const { startFuelLevel } = req.body;
-    if (startFuelLevel === undefined || startFuelLevel === '') {
-      return res.status(400).json({ message: 'Por favor ingresa el nivel de combustible inicial' });
+    // Verificar que no haya una jornada ya abierta
+    const openTrip = await Trip.findOne({ driver: req.user.id, isFinished: false, isCancelled: { $ne: true } });
+    if (openTrip) {
+      return res.status(400).json({ message: 'Ya tenés una jornada abierta. Debés cerrarla antes de iniciar una nueva.' });
     }
-    // Al iniciar turno ya no se ingresan kilómetros del auto, solo nivel de combustible
+
+    const { startFuelLevel } = req.body;
+    // Al iniciar turno ya no se ingresan kilómetros del auto, solo nivel de combustible (opcional)
     const trip = new Trip({
       driver: req.user.id,
-      startFuelLevel: Number(startFuelLevel),
+      startFuelLevel: startFuelLevel !== undefined && startFuelLevel !== '' ? Number(startFuelLevel) : 0,
       date: new Date(),
       isFinished: false,
     });
@@ -56,20 +59,17 @@ router.post('/post-trip', driverAuth, async (req, res) => {
   try {
     const { kilometersDone, moneyObtained, endFuelLevel, fuelLitersAdded, endMileage } = req.body;
 
+    // Solo validar que se ingrese dinero recaudado
+    if (moneyObtained === undefined || moneyObtained === '') {
+      return res.status(400).json({ message: 'Por favor ingresa el dinero recaudado' });
+    }
+
     const parsedKm = kilometersDone !== undefined && kilometersDone !== ''
       ? Number(kilometersDone)
-      : (endMileage !== undefined && endMileage !== '' ? Number(endMileage) : null);
-
-    if (parsedKm === null || isNaN(parsedKm) || parsedKm < 0 || moneyObtained === undefined || moneyObtained === '') {
-      return res.status(400).json({ message: 'Por favor ingresa los kilómetros realizados según apps y el dinero recaudado' });
-    }
-
-    if (endFuelLevel === undefined || endFuelLevel === '') {
-      return res.status(400).json({ message: 'Por favor ingresa el nivel de combustible final' });
-    }
+      : (endMileage !== undefined && endMileage !== '' ? Number(endMileage) : 0);
 
     // Buscar turno activo no finalizado del chofer
-    let activeTrip = await Trip.findOne({ driver: req.user.id, isFinished: false }).sort({ createdAt: -1 });
+    let activeTrip = await Trip.findOne({ driver: req.user.id, isFinished: false, isCancelled: { $ne: true } }).sort({ createdAt: -1 });
 
     if (!activeTrip) {
       // Si no inició turno previamente con pre-trip, crear uno nuevo directamente
@@ -79,37 +79,19 @@ router.post('/post-trip', driverAuth, async (req, res) => {
       });
     }
 
-    activeTrip.kilometersDone = parsedKm;
+    if (parsedKm > 0) activeTrip.kilometersDone = parsedKm;
     activeTrip.moneyObtained = Number(moneyObtained);
     if (endMileage !== undefined && endMileage !== '') activeTrip.endMileage = Number(endMileage);
     if (endFuelLevel !== undefined && endFuelLevel !== '') activeTrip.endFuelLevel = Number(endFuelLevel);
     if (fuelLitersAdded !== undefined && fuelLitersAdded !== '') activeTrip.fuelLitersAdded = Number(fuelLitersAdded);
     activeTrip.isFinished = true;
-
-    // Compute all metrics using current fuel price (10L / 100km rate -> kms / 10)
-    const fuelPrice = await FuelPrice.getCurrentPrice();
-    activeTrip.computeMetrics(fuelPrice);
-
-    // Reset transfer status for this shift
-    if (!activeTrip.transferStatus) {
-      activeTrip.transferStatus = 'pending';
-    }
+    activeTrip.transferStatus = activeTrip.transferStatus || 'pending';
 
     await activeTrip.save();
 
     res.json({
-      message: 'Turno finalizado y métricas calculadas con éxito',
+      message: 'Turno finalizado con éxito',
       trip: activeTrip,
-      summary: {
-        kilometersDone: activeTrip.kilometersDone,
-        fuelConsumedLiters: activeTrip.fuelConsumedLiters,
-        fuelCost: activeTrip.fuelCost,
-        netProfit: activeTrip.netProfit,
-        carWearAmount: activeTrip.carWearAmount,
-        carReplacementAmount: activeTrip.carReplacementAmount,
-        totalTransferAmount: activeTrip.totalTransferAmount,
-        transferStatus: activeTrip.transferStatus,
-      },
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -235,6 +217,53 @@ router.get('/stats', driverAuth, async (req, res) => {
       totalTransfers,
       pendingApprovalTransfersCount,
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Eliminar una jornada propia (solo si no está aprobada)
+// @route   DELETE /api/driver/trip/:id
+// @access  Private (driver)
+router.delete('/trip/:id', driverAuth, async (req, res) => {
+  try {
+    const trip = await Trip.findOne({ _id: req.params.id, driver: req.user.id });
+    if (!trip) {
+      return res.status(404).json({ message: 'Jornada no encontrada' });
+    }
+    if (trip.transferStatus === 'approved') {
+      return res.status(400).json({ message: 'No se puede eliminar una jornada con transferencia aprobada.' });
+    }
+    await Trip.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Jornada eliminada correctamente.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Editar datos de una jornada propia (solo si no está aprobada)
+// @route   PUT /api/driver/trip/:id
+// @access  Private (driver)
+router.put('/trip/:id', driverAuth, async (req, res) => {
+  try {
+    const trip = await Trip.findOne({ _id: req.params.id, driver: req.user.id });
+    if (!trip) {
+      return res.status(404).json({ message: 'Jornada no encontrada' });
+    }
+    if (trip.transferStatus === 'approved') {
+      return res.status(400).json({ message: 'No se puede editar una jornada con transferencia aprobada.' });
+    }
+
+    const { kilometersDone, moneyObtained, startFuelLevel, endFuelLevel, fuelLitersAdded } = req.body;
+
+    if (kilometersDone !== undefined) trip.kilometersDone = Number(kilometersDone);
+    if (moneyObtained !== undefined) trip.moneyObtained = Number(moneyObtained);
+    if (startFuelLevel !== undefined) trip.startFuelLevel = Number(startFuelLevel);
+    if (endFuelLevel !== undefined) trip.endFuelLevel = Number(endFuelLevel);
+    if (fuelLitersAdded !== undefined) trip.fuelLitersAdded = Number(fuelLitersAdded);
+
+    await trip.save();
+    res.json({ message: 'Jornada actualizada correctamente.', trip });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
