@@ -74,13 +74,13 @@ router.post('/login', async (req, res) => {
 
     let user;
     // Check if trying to login as admin
-    if (identifier === 'Administrador' || identifier.toLowerCase() === 'admin@uberclone.com') {
+    if (identifier === 'Administrador' || identifier.toLowerCase() === 'tallerdecomputadoras.it@gmail.com') {
       user = await User.findOne({ role: 'admin' });
       if (!user) {
         // Create initial admin if not exists
         user = new User({
           name: 'Administrador',
-          email: 'admin@uberclone.com',
+          email: 'tallerdecomputadoras.it@gmail.com',
           password: 'Chofer4059!', // Will be hashed pre-save
           role: 'admin',
           isActive: true,
