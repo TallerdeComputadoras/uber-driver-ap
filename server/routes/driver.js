@@ -87,6 +87,12 @@ router.post('/post-trip', driverAuth, async (req, res) => {
     activeTrip.isFinished = true;
     activeTrip.transferStatus = activeTrip.transferStatus || 'pending';
 
+    // Recalcular metricas automaticas: kms, consumo y costo de nafta,
+    // ganancia neta (recaudado - nafta) y retenciones
+    // (10% desgaste + 10% cambio = 20% a transferir).
+    const currentFuelPrice = await FuelPrice.getCurrentPrice();
+    activeTrip.computeMetrics(currentFuelPrice);
+
     await activeTrip.save();
 
     res.json({
@@ -261,6 +267,10 @@ router.put('/trip/:id', driverAuth, async (req, res) => {
     if (startFuelLevel !== undefined) trip.startFuelLevel = Number(startFuelLevel);
     if (endFuelLevel !== undefined) trip.endFuelLevel = Number(endFuelLevel);
     if (fuelLitersAdded !== undefined) trip.fuelLitersAdded = Number(fuelLitersAdded);
+
+    // Recalcular metricas (ganancia neta, desgaste, cambio y total a transferir)
+    const currentFuelPrice = await FuelPrice.getCurrentPrice();
+    trip.computeMetrics(currentFuelPrice);
 
     await trip.save();
     res.json({ message: 'Jornada actualizada correctamente.', trip });
