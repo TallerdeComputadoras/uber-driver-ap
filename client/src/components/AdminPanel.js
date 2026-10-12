@@ -141,7 +141,7 @@ function AdminPanel({ token: propToken }) {
         setIsAuthenticatedAdmin(true);
         showAlert('success', 'Panel de Administrador desbloqueado.');
       } else {
-        showAlert('error', data.message || 'Contraseña de administrador incorrecta.');
+        showAlert('error', data.message || 'Contrasena de administrador incorrecta.');
       }
     } catch (err) {
       showAlert('error', 'Error al conectar con el servidor.');
@@ -152,7 +152,7 @@ function AdminPanel({ token: propToken }) {
   const handleUpdatePrice = async (e) => {
     e.preventDefault();
     if (!fuelPriceInput || isNaN(Number(fuelPriceInput)) || Number(fuelPriceInput) <= 0) {
-      showAlert('error', 'Por favor ingresa un precio de nafta válido.');
+      showAlert('error', 'Por favor ingresa un precio de nafta valido.');
       return;
     }
     setUpdatingPrice(true);
@@ -206,7 +206,7 @@ function AdminPanel({ token: propToken }) {
 
   // Dar de baja a un usuario
   const handleDeactivateUser = async (userId, userName) => {
-    if (!window.confirm(`¿Estás seguro de dar de baja al usuario "${userName}"? No podrá volver a iniciar sesión, pero su historial quedará guardado.`)) {
+    if (!window.confirm(`¿Estas seguro de dar de baja al usuario "${userName}"? No podra volver a iniciar sesion, pero su historial quedara guardado.`)) {
       return;
     }
     try {
@@ -257,7 +257,7 @@ function AdminPanel({ token: propToken }) {
       showAlert('error', 'Para eliminar un usuario, primero debe ser dado de baja.');
       return;
     }
-    if (!window.confirm(`⚠️ ADVERTENCIA CRÍTICA: ¿Eliminar definitivamente a "${user.name}"? Desaparecerá todo rastro del usuario y todos sus turnos asociados. Esta acción no se puede deshacer.`)) {
+    if (!window.confirm(`⚠️ ADVERTENCIA CRITICA: ¿Eliminar definitivamente a "${user.name}"? Desaparecera todo rastro del usuario y todos sus turnos asociados. Esta accion NO se puede deshacer.`)) {
       return;
     }
 
@@ -408,7 +408,7 @@ function AdminPanel({ token: propToken }) {
     return (
       <div className="auth-container">
         <div className="auth-header">
-          <h1 className="auth-title">Panel de Administración</h1>
+          <h1 className="auth-title">Panel de Administracion</h1>
           <p className="auth-subtitle">Ingresa la clave maestra para acceder</p>
         </div>
 
@@ -421,11 +421,11 @@ function AdminPanel({ token: propToken }) {
 
         <form onSubmit={handleAdminLogin}>
           <div className="form-group">
-            <label className="form-label">Contraseña de Administrador</label>
+            <label className="form-label">Contrasena de Administrador</label>
             <PasswordInput
               value={adminPassword}
               onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Ingresa la contraseña"
+              placeholder="Ingresa la contrasena"
               required
             />
           </div>
@@ -448,7 +448,7 @@ function AdminPanel({ token: propToken }) {
             Centro de Control Administrador
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginTop: '0.25rem' }}>
-            Supervisión de turnos, confirmación de transferencias y gestión de usuarios.
+            Supervision de turnos, confirmacion de transferencias y gestion de usuarios.
           </p>
         </div>
       </div>
@@ -555,17 +555,17 @@ function AdminPanel({ token: propToken }) {
             </div>
 
             <div className="filter-item">
-              <span className="filter-label">Período:</span>
+              <span className="filter-label">Periodo:</span>
               <select
                 className="form-select"
                 style={{ width: 'auto', padding: '0.45rem 0.85rem' }}
                 value={filterPeriod}
                 onChange={(e) => setFilterPeriod(e.target.value)}
               >
-                <option value="day">Día</option>
+                <option value="day">Dia</option>
                 <option value="week">Semana</option>
                 <option value="month">Mes</option>
-                <option value="year">Año</option>
+                <option value="year">Ano</option>
               </select>
             </div>
           </div>
@@ -573,7 +573,7 @@ function AdminPanel({ token: propToken }) {
           <div className="card">
             <div className="card-title">
               <span>📋</span>
-              <span>Listado de Turnos y Aprobación de Fondos</span>
+              <span>Listado de Turnos y Aprobacion de Fondos</span>
             </div>
 
             {loadingTrips ? (
