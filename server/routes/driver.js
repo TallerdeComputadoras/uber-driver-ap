@@ -38,10 +38,19 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
     }
 
     const { startFuelLevel } = req.body;
-    // Al iniciar turno ya no se ingresan kilómetros del auto, solo nivel de combustible (opcional)
+    // El nivel de combustible del tanque es obligatorio para iniciar la jornada.
+    if (
+      startFuelLevel === undefined ||
+      startFuelLevel === '' ||
+      startFuelLevel === null ||
+      isNaN(Number(startFuelLevel))
+    ) {
+      return res.status(400).json({ message: 'Por favor ingresá el nivel de combustible del tanque (% o litros).' });
+    }
+    // Al iniciar turno no se ingresan kilómetros del auto, solo el nivel de combustible.
     const trip = new Trip({
       driver: req.user.id,
-      startFuelLevel: startFuelLevel !== undefined && startFuelLevel !== '' ? Number(startFuelLevel) : 0,
+      startFuelLevel: Number(startFuelLevel),
       date: new Date(),
       isFinished: false,
     });

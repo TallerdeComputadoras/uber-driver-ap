@@ -121,10 +121,13 @@ function DriverDashboard({ token: propToken }) {
   // Handle pre-trip: Iniciar turno
   const handleStartTrip = async (e) => {
     e.preventDefault();
+    if (startFuelLevel === '' || startFuelLevel === null || isNaN(Number(startFuelLevel))) {
+      showNotification('error', 'Por favor ingresá el nivel de combustible del tanque (% o litros).');
+      return;
+    }
     setLoadingTrip(true);
     try {
-      const body = {};
-      if (startFuelLevel !== '') body.startFuelLevel = Number(startFuelLevel);
+      const body = { startFuelLevel: Number(startFuelLevel) };
 
       const res = await fetch('/api/driver/pre-trip', {
         method: 'POST',
@@ -434,7 +437,7 @@ function DriverDashboard({ token: propToken }) {
             <span>Iniciar Jornada (Pre-Trip)</span>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            Registra el inicio de tu jornada. El nivel de combustible es opcional.
+            Registra el inicio de tu jornada. Indicá el nivel de combustible del tanque para comenzar.
           </p>
 
           {activeShift ? (
@@ -446,15 +449,19 @@ function DriverDashboard({ token: propToken }) {
           ) : (
             <form onSubmit={handleStartTrip}>
               <div className="form-group">
-                <label className="form-label">Nivel de Combustible Inicial (% o Litros) — Opcional</label>
+                <label className="form-label">
+                  Nivel de Combustible Inicial (% o Litros){' '}
+                  <span style={{ color: '#f87171', fontSize: '0.75rem' }}>*</span>
+                </label>
                 <input
                   type="number"
                   step="1"
                   min="0"
                   className="form-input"
-                  placeholder="Ej: 80 (%) — Opcional"
+                  placeholder="Ej: 80 (%)"
                   value={startFuelLevel}
                   onChange={(e) => setStartFuelLevel(e.target.value)}
+                  required
                 />
               </div>
 

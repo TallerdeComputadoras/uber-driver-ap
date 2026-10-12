@@ -18,10 +18,11 @@ const fuelPriceSchema = new mongoose.Schema({
 
 // Ensure only one document exists (singleton pattern)
 fuelPriceSchema.statics.getCurrentPrice = async function () {
-  let doc = await this.findOne();
+  const doc = await this.findOne();
+  // Si aún no se configuró un precio, devolvemos 0 en lugar de crear un
+  // documento inválido (pricePerLiter es required y rompería el guardado).
   if (!doc) {
-    doc = new this();
-    await doc.save();
+    return 0;
   }
   return doc.pricePerLiter;
 };
