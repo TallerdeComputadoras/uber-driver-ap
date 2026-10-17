@@ -15,7 +15,6 @@ function DriverDashboard({ token: propToken }) {
   const [endFuelLevel, setEndFuelLevel] = useState('');
   const [moneyObtained, setMoneyObtained] = useState('');
   const [fuelLitersAdded, setFuelLitersAdded] = useState('');
-  const [fallbackStartFuelLevel, setFallbackStartFuelLevel] = useState('');
 
   // Notifications / feedback
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -122,13 +121,14 @@ function DriverDashboard({ token: propToken }) {
   // Handle pre-trip: Iniciar turno
   const handleStartTrip = async (e) => {
     e.preventDefault();
-    if (startFuelLevel === '' || startFuelLevel === null || isNaN(Number(startFuelLevel))) {
-      showNotification('error', 'Por favor ingresá el nivel de combustible del tanque (% o litros).');
+    const val = Number(startFuelLevel);
+    if (startFuelLevel === '' || startFuelLevel === null || isNaN(val) || val <= 0) {
+      showNotification('error', 'El Nivel de Combustible Inicial (% o Litros) es obligatorio y debe ser mayor a 0 para iniciar la jornada.');
       return;
     }
     setLoadingTrip(true);
     try {
-      const body = { startFuelLevel: Number(startFuelLevel) };
+      const body = { startFuelLevel: val };
 
       const res = await fetch('/api/driver/pre-trip', {
         method: 'POST',
@@ -167,9 +167,6 @@ function DriverDashboard({ token: propToken }) {
       if (kilometersDone !== '') body.kilometersDone = Number(kilometersDone);
       if (endFuelLevel !== '') body.endFuelLevel = Number(endFuelLevel);
       if (fuelLitersAdded !== '') body.fuelLitersAdded = Number(fuelLitersAdded);
-      if (!activeShift && fallbackStartFuelLevel !== '') {
-        body.startFuelLevel = Number(fallbackStartFuelLevel);
-      }
 
       const res = await fetch('/api/driver/post-trip', {
         method: 'POST',
@@ -187,7 +184,6 @@ function DriverDashboard({ token: propToken }) {
         setEndFuelLevel('');
         setMoneyObtained('');
         setFuelLitersAdded('');
-        setFallbackStartFuelLevel('');
         fetchStats();
         fetchMyTrips();
       } else {
@@ -482,14 +478,15 @@ function DriverDashboard({ token: propToken }) {
           ) : (
             <form onSubmit={handleStartTrip}>
               <div className="form-group">
-                <label className="form-label">
-                  Nivel de Combustible Inicial (% o Litros){' '}
-                  <span style={{ color: '#f87171', fontSize: '0.75rem' }}>*</span>
+                <label className="form-label" style={{ fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Nivel de Combustible Inicial (% o Litros)</span>
+                  <span style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 800 }}>* OBLIGATORIO</span>
                 </label>
                 <input
                   type="number"
                   step="1"
-                  min="0"
+                  min="1"
+                  max="1000"
                   className="form-input"
                   placeholder="Ej: 80 (%)"
                   value={startFuelLevel}
@@ -500,7 +497,7 @@ function DriverDashboard({ token: propToken }) {
 
               <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px dashed rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1.25rem' }}>
                 <p style={{ margin: 0, fontSize: '0.82rem', color: '#6ee7b7' }}>
-                  ℹ️ Los kilometros realizados se ingresan al finalizar el turno, tomados directamente de las <strong>aplicaciones de conductores</strong>.
+                  ℹ️ Indicá con cuánta nafta comenzás tu turno. Los kilómetros y dinero se ingresan al finalizar el turno.
                 </p>
               </div>
 
@@ -526,42 +523,44 @@ function DriverDashboard({ token: propToken }) {
             Ingresa el dinero recaudado para cerrar el turno. Kms y combustible son opcionales.
           </p>
 
-          {activeShift && (
+          {!activeShift ? (
             <div style={{
-              background: 'rgba(56, 189, 248, 0.08)',
-              border: '1px solid rgba(56, 189, 248, 0.25)',
-              borderRadius: '8px',
-              padding: '0.6rem 0.9rem',
-              marginBottom: '1rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: '0.83rem',
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px dashed rgba(239, 68, 68, 0.35)',
+              borderRadius: '10px',
+              padding: '1.5rem 1rem',
+              textAlign: 'center',
             }}>
-              <span style={{ color: 'var(--text-secondary)' }}>
-                🟢 Combustible inicial registrado al iniciar:
-              </span>
-              <strong style={{ color: '#38bdf8' }}>
-                {activeShift.startFuelLevel !== undefined && activeShift.startFuelLevel !== null ? `${activeShift.startFuelLevel}%` : '—'}
+              <span style={{ fontSize: '1.6rem', display: 'block', marginBottom: '0.5rem' }}>🛑</span>
+              <strong style={{ color: '#f87171', fontSize: '0.95rem', display: 'block', marginBottom: '0.4rem' }}>
+                Primero debés iniciar la jornada
               </strong>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Para registrar recaudación y cerrar el turno, es <strong>obligatorio</strong> completar primero el <em>Nivel de Combustible Inicial</em> en la tarjeta de la izquierda.
+              </p>
             </div>
-          )}
-
-          <form onSubmit={handleEndTrip}>
-            {!activeShift && (
-              <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-                <label className="form-label">Nivel Inicial Nafta (% o Litros) — Opcional</label>
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  className="form-input"
-                  placeholder="Ej: 80 (%)"
-                  value={fallbackStartFuelLevel}
-                  onChange={(e) => setFallbackStartFuelLevel(e.target.value)}
-                />
+          ) : (
+            <>
+              <div style={{
+                background: 'rgba(56, 189, 248, 0.08)',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+                borderRadius: '8px',
+                padding: '0.6rem 0.9rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.83rem',
+              }}>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  🟢 Combustible inicial registrado al iniciar:
+                </span>
+                <strong style={{ color: '#38bdf8' }}>
+                  {activeShift.startFuelLevel !== undefined && activeShift.startFuelLevel !== null ? `${activeShift.startFuelLevel}%` : '—'}
+                </strong>
               </div>
-            )}
+
+              <form onSubmit={handleEndTrip}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div className="form-group">
                 <label className="form-label">
@@ -630,6 +629,8 @@ function DriverDashboard({ token: propToken }) {
               {loadingTrip ? 'Cerrando...' : '🏁 Cerrar Turno'}
             </button>
           </form>
+          </>
+        )}
         </div>
       </div>
 

@@ -14,7 +14,8 @@ const tripSchema = new mongoose.Schema(
     },
     startFuelLevel: {
       type: Number, // % o litros restantes
-      required: false,
+      required: [true, 'El nivel de combustible inicial es obligatorio para iniciar la jornada'],
+      min: [0.1, 'El nivel de combustible inicial debe ser mayor a 0'],
     },
     startFuelLevelDate: {
       type: Date,

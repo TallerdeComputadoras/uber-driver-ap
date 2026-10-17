@@ -38,14 +38,17 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
     }
 
     const { startFuelLevel } = req.body;
-    // El nivel de combustible del tanque es obligatorio para iniciar la jornada.
+    // El nivel de combustible del tanque es estrictamente obligatorio para iniciar la jornada.
     if (
       startFuelLevel === undefined ||
       startFuelLevel === '' ||
       startFuelLevel === null ||
-      isNaN(Number(startFuelLevel))
+      isNaN(Number(startFuelLevel)) ||
+      Number(startFuelLevel) <= 0
     ) {
-      return res.status(400).json({ message: 'Por favor ingresá el nivel de combustible del tanque (% o litros).' });
+      return res.status(400).json({
+        message: 'El Nivel de Combustible Inicial (% o Litros) es obligatorio y debe ser mayor a 0 para iniciar la jornada.',
+      });
     }
     const now = new Date();
     // Al iniciar turno se ingresa el nivel de combustible inicial
@@ -58,7 +61,7 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
       isFinished: false,
     });
     await trip.save();
-    res.status(201).json({ message: 'Turno iniciado con éxito', trip });
+    res.status(201).json({ message: 'Turno iniciado con éxito. Buen viaje!', trip });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -69,9 +72,18 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
 // @access  Private (driver)
 router.post('/post-trip', driverAuth, async (req, res) => {
   try {
-    const { kilometersDone, moneyObtained, endFuelLevel, fuelLitersAdded, endMileage, startFuelLevel } = req.body;
+    const { kilometersDone, moneyObtained, endFuelLevel, fuelLitersAdded, endMileage } = req.body;
 
-    // Solo validar que se ingrese dinero recaudado
+    // Buscar turno activo no finalizado del chofer (es obligatorio haber iniciado jornada)
+    let activeTrip = await Trip.findOne({ driver: req.user.id, isFinished: false, isCancelled: { $ne: true } }).sort({ createdAt: -1 });
+
+    if (!activeTrip) {
+      return res.status(400).json({
+        message: 'No tenés ninguna jornada en curso. Debés iniciar la jornada primero completando obligatoriamente el Nivel de Combustible Inicial.',
+      });
+    }
+
+    // Validar dinero recaudado
     if (moneyObtained === undefined || moneyObtained === '') {
       return res.status(400).json({ message: 'Por favor ingresa el dinero recaudado' });
     }
@@ -80,27 +92,7 @@ router.post('/post-trip', driverAuth, async (req, res) => {
       ? Number(kilometersDone)
       : (endMileage !== undefined && endMileage !== '' ? Number(endMileage) : 0);
 
-    // Buscar turno activo no finalizado del chofer
-    let activeTrip = await Trip.findOne({ driver: req.user.id, isFinished: false, isCancelled: { $ne: true } }).sort({ createdAt: -1 });
-
     const now = new Date();
-    if (!activeTrip) {
-      // Si no inició turno previamente con pre-trip, crear uno nuevo directamente
-      activeTrip = new Trip({
-        driver: req.user.id,
-        date: now,
-        startTime: now,
-      });
-      if (startFuelLevel !== undefined && startFuelLevel !== '' && !isNaN(Number(startFuelLevel))) {
-        activeTrip.startFuelLevel = Number(startFuelLevel);
-        activeTrip.startFuelLevelDate = now;
-      }
-    } else {
-      // Si ya existía turno pero se pasó un nuevo startFuelLevel
-      if (startFuelLevel !== undefined && startFuelLevel !== '' && !isNaN(Number(startFuelLevel))) {
-        activeTrip.startFuelLevel = Number(startFuelLevel);
-      }
-    }
 
     activeTrip.kilometersDone = parsedKm >= 0 ? parsedKm : 0;
     activeTrip.moneyObtained = Number(moneyObtained);
