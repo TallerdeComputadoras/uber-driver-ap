@@ -47,11 +47,14 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
     ) {
       return res.status(400).json({ message: 'Por favor ingresá el nivel de combustible del tanque (% o litros).' });
     }
-    // Al iniciar turno no se ingresan kilómetros del auto, solo el nivel de combustible.
+    const now = new Date();
+    // Al iniciar turno se ingresa el nivel de combustible inicial
     const trip = new Trip({
       driver: req.user.id,
       startFuelLevel: Number(startFuelLevel),
-      date: new Date(),
+      startFuelLevelDate: now,
+      startTime: now,
+      date: now,
       isFinished: false,
     });
     await trip.save();
@@ -66,7 +69,7 @@ router.post('/pre-trip', driverAuth, async (req, res) => {
 // @access  Private (driver)
 router.post('/post-trip', driverAuth, async (req, res) => {
   try {
-    const { kilometersDone, moneyObtained, endFuelLevel, fuelLitersAdded, endMileage } = req.body;
+    const { kilometersDone, moneyObtained, endFuelLevel, fuelLitersAdded, endMileage, startFuelLevel } = req.body;
 
     // Solo validar que se ingrese dinero recaudado
     if (moneyObtained === undefined || moneyObtained === '') {
@@ -80,20 +83,43 @@ router.post('/post-trip', driverAuth, async (req, res) => {
     // Buscar turno activo no finalizado del chofer
     let activeTrip = await Trip.findOne({ driver: req.user.id, isFinished: false, isCancelled: { $ne: true } }).sort({ createdAt: -1 });
 
+    const now = new Date();
     if (!activeTrip) {
       // Si no inició turno previamente con pre-trip, crear uno nuevo directamente
       activeTrip = new Trip({
         driver: req.user.id,
-        date: new Date(),
+        date: now,
+        startTime: now,
       });
+      if (startFuelLevel !== undefined && startFuelLevel !== '' && !isNaN(Number(startFuelLevel))) {
+        activeTrip.startFuelLevel = Number(startFuelLevel);
+        activeTrip.startFuelLevelDate = now;
+      }
+    } else {
+      // Si ya existía turno pero se pasó un nuevo startFuelLevel
+      if (startFuelLevel !== undefined && startFuelLevel !== '' && !isNaN(Number(startFuelLevel))) {
+        activeTrip.startFuelLevel = Number(startFuelLevel);
+      }
     }
 
-    if (parsedKm > 0) activeTrip.kilometersDone = parsedKm;
+    activeTrip.kilometersDone = parsedKm >= 0 ? parsedKm : 0;
     activeTrip.moneyObtained = Number(moneyObtained);
     if (endMileage !== undefined && endMileage !== '') activeTrip.endMileage = Number(endMileage);
-    if (endFuelLevel !== undefined && endFuelLevel !== '') activeTrip.endFuelLevel = Number(endFuelLevel);
-    if (fuelLitersAdded !== undefined && fuelLitersAdded !== '') activeTrip.fuelLitersAdded = Number(fuelLitersAdded);
+    if (endFuelLevel !== undefined && endFuelLevel !== '' && !isNaN(Number(endFuelLevel))) {
+      activeTrip.endFuelLevel = Number(endFuelLevel);
+    }
+    if (fuelLitersAdded !== undefined && fuelLitersAdded !== '' && !isNaN(Number(fuelLitersAdded))) {
+      activeTrip.fuelLitersAdded = Number(fuelLitersAdded);
+    } else if (activeTrip.fuelLitersAdded === undefined) {
+      activeTrip.fuelLitersAdded = 0;
+    }
     activeTrip.isFinished = true;
+    activeTrip.endTime = now;
+    if (activeTrip.startTime || activeTrip.createdAt) {
+      const startRef = new Date(activeTrip.startTime || activeTrip.createdAt);
+      const diffMinutes = Math.round((now - startRef) / 60000);
+      activeTrip.durationMinutes = diffMinutes > 0 ? diffMinutes : 0;
+    }
     activeTrip.transferStatus = activeTrip.transferStatus || 'pending';
 
     // Recalcular metricas automaticas: kms, consumo y costo de nafta,

@@ -15,11 +15,17 @@ const tripSchema = new mongoose.Schema(
     startFuelLevel: {
       type: Number, // % o litros restantes
       required: false,
-      default: 0,
     },
     startFuelLevelDate: {
       type: Date,
       default: Date.now,
+    },
+    startTime: {
+      type: Date,
+      default: Date.now,
+    },
+    endTime: {
+      type: Date,
     },
     isFinished: {
       type: Boolean,

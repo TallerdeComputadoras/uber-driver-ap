@@ -589,6 +589,7 @@ function AdminPanel({ token: propToken }) {
                       <th>Conductor</th>
                       <th>Fecha</th>
                       <th>KM Apps</th>
+                      <th>Combustible</th>
                       <th>Recaudado</th>
                       <th>Ganancia Neta</th>
                       <th>Desgaste (10%)</th>
@@ -607,13 +608,48 @@ function AdminPanel({ token: propToken }) {
                           {t.isCancelled && <span className="badge badge-danger" style={{ marginTop: '3px' }}>Turno Anulado</span>}
                           {t.editedByAdmin && <span className="badge badge-info" style={{ marginTop: '3px', marginLeft: '3px' }}>Editado por Admin</span>}
                         </td>
-                        <td>{new Date(t.date || t.createdAt).toLocaleDateString('es-AR')}</td>
                         <td>
-                          {t.kilometersDone !== undefined && t.kilometersDone !== null
-                            ? `${t.kilometersDone} km`
-                            : (t.startMileage ? `${t.startMileage} → ${t.endMileage || 'En curso'}` : 'En curso')}
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            {(t.fuelConsumedLiters || 0).toFixed(1)} L nafta
+                          <div>{new Date(t.date || t.createdAt).toLocaleDateString('es-AR')}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            {t.durationMinutes
+                              ? `⏱️ ${Math.floor(t.durationMinutes / 60)}h ${t.durationMinutes % 60}m`
+                              : new Date(t.date || t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>
+                            {t.kilometersDone !== undefined && t.kilometersDone !== null
+                              ? `${t.kilometersDone} km`
+                              : (t.startMileage ? `${t.startMileage} → ${t.endMileage || 'En curso'}` : 'En curso')}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Consumo: {(t.fuelConsumedLiters || 0).toFixed(1)} L (${(t.fuelCost || 0).toFixed(0)})
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: '130px', background: 'rgba(255, 255, 255, 0.03)', padding: '5px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>🟢 Inicial:</span>
+                              <strong style={{ fontSize: '0.78rem', color: '#38bdf8' }}>
+                                {t.startFuelLevel !== undefined && t.startFuelLevel !== null && t.startFuelLevel !== ''
+                                  ? `${t.startFuelLevel}%`
+                                  : '—'}
+                              </strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>🏁 Final:</span>
+                              <strong style={{ fontSize: '0.78rem', color: t.endFuelLevel !== undefined && t.endFuelLevel !== null && t.endFuelLevel !== '' ? '#c084fc' : 'var(--text-muted)' }}>
+                                {t.endFuelLevel !== undefined && t.endFuelLevel !== null && t.endFuelLevel !== ''
+                                  ? `${t.endFuelLevel}%`
+                                  : (t.isFinished ? '—' : 'En curso')}
+                              </strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>⛽ Carga:</span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: (t.fuelLitersAdded || 0) > 0 ? '#34d399' : 'var(--text-muted)' }}>
+                                {(t.fuelLitersAdded || 0) > 0 ? `+${t.fuelLitersAdded} L` : '0 L'}
+                              </span>
+                            </div>
                           </div>
                         </td>
                         <td>${(t.moneyObtained || 0).toFixed(2)}</td>

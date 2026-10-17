@@ -15,6 +15,7 @@ function DriverDashboard({ token: propToken }) {
   const [endFuelLevel, setEndFuelLevel] = useState('');
   const [moneyObtained, setMoneyObtained] = useState('');
   const [fuelLitersAdded, setFuelLitersAdded] = useState('');
+  const [fallbackStartFuelLevel, setFallbackStartFuelLevel] = useState('');
 
   // Notifications / feedback
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -166,6 +167,9 @@ function DriverDashboard({ token: propToken }) {
       if (kilometersDone !== '') body.kilometersDone = Number(kilometersDone);
       if (endFuelLevel !== '') body.endFuelLevel = Number(endFuelLevel);
       if (fuelLitersAdded !== '') body.fuelLitersAdded = Number(fuelLitersAdded);
+      if (!activeShift && fallbackStartFuelLevel !== '') {
+        body.startFuelLevel = Number(fallbackStartFuelLevel);
+      }
 
       const res = await fetch('/api/driver/post-trip', {
         method: 'POST',
@@ -183,6 +187,7 @@ function DriverDashboard({ token: propToken }) {
         setEndFuelLevel('');
         setMoneyObtained('');
         setFuelLitersAdded('');
+        setFallbackStartFuelLevel('');
         fetchStats();
         fetchMyTrips();
       } else {
@@ -321,15 +326,22 @@ function DriverDashboard({ token: propToken }) {
           padding: '0.85rem 1.25rem',
           marginBottom: '1.5rem',
           display: 'flex',
+          justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
           gap: '0.75rem',
         }}>
-          <span style={{ fontSize: '1.3rem' }}>🟢</span>
-          <div>
-            <strong style={{ color: '#34d399', fontSize: '0.95rem' }}>Jornada en curso</strong>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginLeft: '0.5rem' }}>
-              Iniciada el {new Date(activeShift.date || activeShift.createdAt).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.3rem' }}>🟢</span>
+            <div>
+              <strong style={{ color: '#34d399', fontSize: '0.95rem' }}>Jornada en curso</strong>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '2px' }}>
+                Iniciada el {new Date(activeShift.date || activeShift.createdAt).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+          </div>
+          <div style={{ background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '8px', padding: '0.4rem 0.8rem', fontSize: '0.85rem', color: '#38bdf8' }}>
+            ⛽ Nivel inicial: <strong>{activeShift.startFuelLevel !== undefined && activeShift.startFuelLevel !== null ? `${activeShift.startFuelLevel}%` : '—'}</strong>
           </div>
         </div>
       )}
@@ -401,6 +413,27 @@ function DriverDashboard({ token: propToken }) {
                 ${(lastClosedTrip.totalTransferAmount || 0).toFixed(2)}
               </div>
             </div>
+          </div>
+
+          {/* Resumen operativo de combustible y distancia */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            flexWrap: 'wrap',
+            background: 'rgba(255, 255, 255, 0.03)',
+            padding: '0.65rem 1rem',
+            borderRadius: '8px',
+            marginBottom: '1.25rem',
+            fontSize: '0.82rem',
+            color: 'var(--text-secondary)',
+            border: '1px solid rgba(255, 255, 255, 0.06)'
+          }}>
+            <span>🛣️ <strong>{lastClosedTrip.kilometersDone || 0} km</strong> realizados</span>
+            <span>🟢 Tanque inicial: <strong style={{ color: '#38bdf8' }}>{lastClosedTrip.startFuelLevel !== undefined && lastClosedTrip.startFuelLevel !== null ? `${lastClosedTrip.startFuelLevel}%` : '—'}</strong></span>
+            <span>🏁 Tanque final: <strong style={{ color: '#c084fc' }}>{lastClosedTrip.endFuelLevel !== undefined && lastClosedTrip.endFuelLevel !== null ? `${lastClosedTrip.endFuelLevel}%` : '—'}</strong></span>
+            <span>⛽ Nafta cargada: <strong style={{ color: (lastClosedTrip.fuelLitersAdded || 0) > 0 ? '#34d399' : 'inherit' }}>{lastClosedTrip.fuelLitersAdded || 0} L</strong></span>
+            <span>💧 Consumo calc: <strong>{(lastClosedTrip.fuelConsumedLiters || 0).toFixed(1)} L (${(lastClosedTrip.fuelCost || 0).toFixed(0)})</strong></span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem' }}>
@@ -492,7 +525,43 @@ function DriverDashboard({ token: propToken }) {
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
             Ingresa el dinero recaudado para cerrar el turno. Kms y combustible son opcionales.
           </p>
+
+          {activeShift && (
+            <div style={{
+              background: 'rgba(56, 189, 248, 0.08)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              borderRadius: '8px',
+              padding: '0.6rem 0.9rem',
+              marginBottom: '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.83rem',
+            }}>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                🟢 Combustible inicial registrado al iniciar:
+              </span>
+              <strong style={{ color: '#38bdf8' }}>
+                {activeShift.startFuelLevel !== undefined && activeShift.startFuelLevel !== null ? `${activeShift.startFuelLevel}%` : '—'}
+              </strong>
+            </div>
+          )}
+
           <form onSubmit={handleEndTrip}>
+            {!activeShift && (
+              <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                <label className="form-label">Nivel Inicial Nafta (% o Litros) — Opcional</label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  className="form-input"
+                  placeholder="Ej: 80 (%)"
+                  value={fallbackStartFuelLevel}
+                  onChange={(e) => setFallbackStartFuelLevel(e.target.value)}
+                />
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div className="form-group">
                 <label className="form-label">
@@ -638,6 +707,7 @@ function DriverDashboard({ token: propToken }) {
                   <th>Fecha</th>
                   <th>Estado</th>
                   <th>KM Apps</th>
+                  <th>Combustible</th>
                   <th>Recaudado</th>
                   <th>Ganancia Neta</th>
                   <th>Desgaste (10%)</th>
@@ -653,13 +723,19 @@ function DriverDashboard({ token: propToken }) {
                   const isMoneyEdited = t.editedFields && t.editedFields.includes('moneyObtained');
                   const isWearEdited = t.editedFields && (t.editedFields.includes('carWearAmount') || t.editedFields.includes('moneyObtained'));
                   const isReplacementEdited = t.editedFields && (t.editedFields.includes('carReplacementAmount') || t.editedFields.includes('moneyObtained'));
+                  const isFuelEdited = t.editedFields && (t.editedFields.includes('startFuelLevel') || t.editedFields.includes('endFuelLevel') || t.editedFields.includes('fuelLitersAdded'));
                   const canModify = t.transferStatus !== 'approved' && !t.isCancelled;
 
                   return (
                     <tr key={t._id} style={{ opacity: t.isCancelled ? 0.5 : 1 }}>
                       <td>
-                        {new Date(t.date || t.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                        {t.isCancelled && <span className="badge badge-danger" style={{ marginLeft: '6px' }}>Anulado</span>}
+                        <div>{new Date(t.date || t.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          {t.durationMinutes
+                            ? `⏱️ ${Math.floor(t.durationMinutes / 60)}h ${t.durationMinutes % 60}m`
+                            : new Date(t.date || t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                        {t.isCancelled && <span className="badge badge-danger" style={{ marginTop: '2px' }}>Anulado</span>}
                       </td>
                       <td>
                         {!t.isFinished && !t.isCancelled ? (
@@ -670,12 +746,46 @@ function DriverDashboard({ token: propToken }) {
                       </td>
                       <td>
                         <div className="info-field-wrapper">
-                          <span>
-                            {t.kilometersDone !== undefined && t.kilometersDone !== null && t.kilometersDone > 0
-                              ? `${t.kilometersDone} km`
-                              : (t.startMileage ? `${t.startMileage} → ${t.endMileage || 'En curso'}` : '—')}
-                          </span>
+                          <div>
+                            <span style={{ fontWeight: 600 }}>
+                              {t.kilometersDone !== undefined && t.kilometersDone !== null && t.kilometersDone > 0
+                                ? `${t.kilometersDone} km`
+                                : (t.startMileage ? `${t.startMileage} → ${t.endMileage || 'En curso'}` : '—')}
+                            </span>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              Consumo: {(t.fuelConsumedLiters || 0).toFixed(1)} L (${(t.fuelCost || 0).toFixed(0)})
+                            </div>
+                          </div>
                           {isKmEdited && <InfoBadge text="Editado por administrador" />}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="info-field-wrapper">
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: '130px', background: 'rgba(255, 255, 255, 0.03)', padding: '5px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>🟢 Inicial:</span>
+                              <strong style={{ fontSize: '0.78rem', color: '#38bdf8' }}>
+                                {t.startFuelLevel !== undefined && t.startFuelLevel !== null && t.startFuelLevel !== ''
+                                  ? `${t.startFuelLevel}%`
+                                  : '—'}
+                              </strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>🏁 Final:</span>
+                              <strong style={{ fontSize: '0.78rem', color: t.endFuelLevel !== undefined && t.endFuelLevel !== null && t.endFuelLevel !== '' ? '#c084fc' : 'var(--text-muted)' }}>
+                                {t.endFuelLevel !== undefined && t.endFuelLevel !== null && t.endFuelLevel !== ''
+                                  ? `${t.endFuelLevel}%`
+                                  : (t.isFinished ? '—' : 'En curso')}
+                              </strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>⛽ Carga:</span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: (t.fuelLitersAdded || 0) > 0 ? '#34d399' : 'var(--text-muted)' }}>
+                                {(t.fuelLitersAdded || 0) > 0 ? `+${t.fuelLitersAdded} L` : '0 L'}
+                              </span>
+                            </div>
+                          </div>
+                          {isFuelEdited && <InfoBadge text="Editado por administrador" />}
                         </div>
                       </td>
                       <td>
